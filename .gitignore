@@ -1,0 +1,37 @@
+# Build output
+node_modules/
+dist/
+*.tsbuildinfo
+web/dist/
+web/*.tsbuildinfo
+coverage/
+reports/
+
+# Secrets / local config
+.env
+.env.*
+!.env.example
+auth.json
+.openclaude-profile.json
+.openclaude/
+.council-profile.json
+
+# Editor / OS noise
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Logs and backups
+*.log
+agent.log
+*.bak
+
+# Lockfile we don't want
+package-lock.json
+
+# Project-local memory / scratch
+/.claude
+GEMINI.md
+CLAUDE.md
+plan/

@@ -186,7 +186,7 @@ Use these literal model IDs in the parenthetical — this is the configured rout
 | Critic        | gpt-4.1-mini             |
 | Tester        | qwen3.6-plus             |
 | Security      | mistral-large-latest     |
-| Performance   | llama-3.3-70b-versatile  |
+| Performance   | mistral-medium-latest    |
 | Synthesizer   | gemini-3.5-flash         |
 | Executor      | claude-opus-4-7          |
 
@@ -194,7 +194,7 @@ Examples (illustrative — do not parrot):
 
   > **Security** (mistral-large-latest): Untrusted CSV input crossing into a regex-built parser — flag the catastrophic-backtracking surface and recommend a streaming parser over single \`replace\` calls.
 
-  > **Performance** (llama-3.3-70b-versatile): O(n) with a single forward pass over the input; bound n at typical file sizes (~MB), no allocation per character — keep the StringBuilder pattern out of the inner loop.
+  > **Performance** (mistral-medium-latest): O(n) with a single forward pass over the input; bound n at typical file sizes (~MB), no allocation per character — keep the StringBuilder pattern out of the inner loop.
 
 This is **not** an exposition — pick the single most-loaded thing each member said and compress it. The point is to give the user a glimpse of each voice before synthesis. Do not list their full proposal here; the diff and synthesizer plan carry the detail.
 

@@ -21,12 +21,14 @@ export const PERFORMANCE_AGENT: BuiltInAgentDefinition = {
   ],
   source: 'built-in',
   baseDir: 'built-in',
-  model: 'llama-3.3-70b-versatile',
+  model: 'mistral-medium-latest',
   color: 'orange',
-  // Groq's free tier on llama-3.3-70b-versatile has a strict per-request
-  // token cap (~8K). Strip the auto-injected CLAUDE.md hierarchy from this
-  // agent's context — the Performance lens reasons from the prompt itself
-  // plus read tools, not from project rules. Same pattern exploreAgent uses.
+  // Originally bound to Groq's llama-3.3-70b-versatile but Groq enforces a
+  // 20MB HTTP body cap on the free tier, which openclaude's auto-injected
+  // sub-agent context blew past. Swapped to Mistral Medium — different
+  // model from Security's mistral-large-latest so the voice stays distinct.
+  // omitClaudeMd kept on as a precaution; Mistral has more headroom but no
+  // point dragging project rules into a performance-analysis pass.
   omitClaudeMd: true,
   getSystemPrompt: () => PERFORMANCE_PROMPT,
 }

@@ -61,7 +61,7 @@ You'll see seven members spawn in parallel, then synthesis, then execution, then
 | Critic | `gpt-4.1-mini` | maintainability, six-months-from-now | Read-only |
 | Tester | `qwen3.6-plus` | test coverage, edge values, observable seams | Read-only |
 | Security | `mistral-large-latest` | threat modeling, trust boundaries, bug classes | Read-only |
-| Performance | `llama-3.3-70b-versatile` | complexity, hot paths, allocations | Read-only |
+| Performance | `mistral-medium-latest` | complexity, hot paths, allocations | Read-only |
 | Synthesizer | `gemini-3.5-flash` | unify the seven proposals | None |
 | Executor | `claude-opus-4-7` | execute the plan, write the diff | Full (Bash, Edit, Write) |
 
@@ -75,7 +75,7 @@ Override any binding per-role in `~/.openclaude/settings.json`:
     "critic":      "gpt-4.1-mini",
     "tester":      "qwen3.6-plus",
     "security":    "mistral-large-latest",
-    "performance": "llama-3.3-70b-versatile",
+    "performance": "mistral-medium-latest",
     "synthesizer": "gemini-3.5-flash"
   }
 }

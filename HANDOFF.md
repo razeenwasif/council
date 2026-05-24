@@ -59,7 +59,7 @@ src/tools/AgentTool/built-in/council/
 ├── criticAgent.ts              ← gpt-4.1-mini, maintainability lens
 ├── testerAgent.ts              ← qwen3.6-plus, test-coverage lens
 ├── securityAgent.ts            ← mistral-large-latest, threat-modeling lens
-├── performanceAgent.ts         ← llama-3.3-70b-versatile, complexity / hot-path lens
+├── performanceAgent.ts         ← mistral-medium-latest, complexity / hot-path lens
 ├── synthesizerAgent.ts         ← gemini-3.5-flash, no tools, judge
 └── executorAgent.ts            ← claude-opus-4-7, full tools, the only writer
 

@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+### Deterministic orchestrator is now the default — P1 complete
+
+The deterministic `runCouncilFromToolContext` path replaces the LLM-coordinator-with-strict-prompt path as the default behaviour. Verified in a live session: 7-vendor fan-out completed end-to-end, file + tests created, 9/9 tests passing.
+
+- `src/coordinator/council/maybeInterceptCouncilPrompt.ts` — removed the `COUNCIL_DETERMINISTIC=1` opt-in check. Added `COUNCIL_LLM_COORDINATOR=1` as the new opt-OUT escape hatch (rare edge cases, debugging, or rollback without a recompile).
+- `src/screens/REPL.tsx` — the deterministic-path hook now runs unconditionally on every prompt; the hook's internal checks (`isCouncilMode`, router decision, slash-command guard) gate the actual interception. Same `queryGuard.forceEnd()` cleanup as the opt-in version.
+- `bin/council` — `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` is now set on every launch (unless `COUNCIL_OFF=1` or `COUNCIL_LLM_COORDINATOR=1`). Sync dispatch is required by the deterministic path; without it AgentTool returns `async_launched` instead of real results.
+
+Bug chain we walked through during verification, all now-permanent patches in `councilSpawn.ts`:
+
+1. `ensureMainLoopModel` — `getBedrockRegionPrefix` was `.startsWith`ing an undefined `mainLoopModel`
+2. `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` in launcher — coordinator mode was routing every spawn into the background-task lifecycle
+3. `ensureAbortController` — `runAgent` was reading `.signal` on an undefined `abortController`, with parent-abort propagation so per-member timeouts reach the underlying agent
+4. `queryGuard.forceEnd()` after interception — REPL loading spinner was sticking after the council finished
+
+Each patch shipped with unit tests; council test totals: **71 pass · 0 fail · 164 expects · ~665ms**.
+
+**Rollback path**: set `COUNCIL_LLM_COORDINATOR=1` in the env before launching. The strict-prompt LLM-coordinator path (still in `prompts.ts`) takes over, async dispatch is preserved.
+
+**BACKLOG**: last P1 item closed. Only P3 cleanups (vim/voice/unused-providers/slash commands/config paths) and P4 speculative items remain.
+
 ### Council grid TUI + opt-in deterministic REPL hook
 
 P1's last-mile hook and P2's grid TUI both shipped behind opt-in toggles so the proven LLM-coordinator path stays the default.

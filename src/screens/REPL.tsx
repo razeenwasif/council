@@ -3569,17 +3569,21 @@ export function REPL({
     // Ensure SessionStart hook context is available before the first API call.
     await awaitPendingHooks();
 
-    // Council deterministic-path hook: when COUNCIL_DETERMINISTIC=1 is set,
-    // intercept council-worthy prompts and route them through
-    // runCouncilFromToolContext instead of the LLM-coordinator path. The
-    // hook returns true iff it handled the prompt; false (the default for
-    // every non-council case) lets handlePromptSubmit run as usual.
+    // Council deterministic-path hook — default since v1.x. When council
+    // mode is on and the router routes this prompt to the council, the
+    // hook calls runCouncilFromToolContext directly and bypasses the
+    // LLM-coordinator path. Returns true iff handled.
+    //
+    // Internal early-returns inside the hook cover non-council cases
+    // (council mode off, slash commands, router returns solo, or the
+    // COUNCIL_LLM_COORDINATOR=1 escape hatch). When returning false the
+    // normal handlePromptSubmit path runs as usual.
     //
     // When intercepted, force-end the queryGuard so the loading spinner
     // ("Meandering…") clears — handlePromptSubmit normally calls
     // queryGuard.end() at the end of its work, but the deterministic
     // path bypasses that. forceEnd is idempotent / safe when not active.
-    if (process.env.COUNCIL_DETERMINISTIC === '1') {
+    {
       const { maybeInterceptCouncilPrompt } = await import(
         '../coordinator/council/maybeInterceptCouncilPrompt.js'
       );

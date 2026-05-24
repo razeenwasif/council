@@ -4,6 +4,7 @@ Things deliberately not built in v1, grouped by priority. Each item names what's
 
 ## Done (since BACKLOG was first written)
 
+- ✓ **Deterministic orchestrator is the default** — `runCouncilFromToolContext` replaces the LLM-coordinator-with-strict-prompt path. Verified end-to-end in a live session (7 voices fan out, executor writes file, reviewers vote, 9/9 tests pass). Four integration patches in `councilSpawn.ts` (`ensureMainLoopModel`, `ensureAbortController`, robust result parsing, `synthesizeToolUseSummary` fallback) plus `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` in `bin/council` plus `queryGuard.forceEnd()` after the REPL hook. `COUNCIL_LLM_COORDINATOR=1` is the opt-OUT escape hatch.
 - ✓ **Council grid TUI** — N×M layout (2 or 3 columns based on terminal width) for the council agent panel, auto-activated when ≥5 council-role agents share a group. Width-aware fallback to stacked rows. 6 unit tests.
 - ✓ **Deterministic REPL hook** — `COUNCIL_DETERMINISTIC=1` opts into the deterministic path; REPL's `onSubmit` intercepts council-worthy prompts and routes through `runCouncilFromToolContext`. Gated behind env flag so default behaviour is unchanged. 9 unit tests for the formatter helpers.
 - ✓ **`/council on|off` toggles mid-session** — `clearAgentDefinitionsCache()` called on toggle so the next prompt re-reads the env vars and re-registers the right agent set. `getCoordinatorSystemPrompt()` already reads env at call time so the prompt switches naturally. No more "must relaunch" caveat in the help text.
@@ -14,13 +15,6 @@ Things deliberately not built in v1, grouped by priority. Each item names what's
 - ✓ **Vendor badges in agent panel** (`vendorBadge.ts`) — covers the spirit of the original "color-coded role labels" P2 item via a different mechanism (colored glyphs vs. role-name color).
 - ✓ **Live thinking preview** in the agent panel — extracts the last sentence-or-clause of the current assistant text and surfaces it italic+dim on the AgentProgressLine status row.
 - ✓ **Tester, Security, Performance seats** — council went from 4 → 5 → 7 voices. Quorum math scaled (consensus ≥5/7, revision ≥3/7).
-
-## P1 — last-mile verification
-
-### Verify the deterministic path in a live session, then flip the default
-**Status**: everything is in place. `runCouncilFromToolContext` is implemented and tested. `/council run <prompt>` exposes it explicitly. The REPL hook in `onSubmit` intercepts council-worthy prompts when `COUNCIL_DETERMINISTIC=1` is set. The strict-prompt LLM-coordinator path remains the default.
-
-**Remaining work**: (1) run with `COUNCIL_DETERMINISTIC=1 council` and exercise a substantive prompt end-to-end. Verify the agent panel still shows live progress per voice (it should — the spawn adapter calls AgentTool.call which goes through the same UI hooks the LLM coordinator uses), verify the `assistantMessage` stub doesn't break anything, verify the final summary lands as a clean assistant message. (2) Once stable, flip the default by removing the `COUNCIL_DETERMINISTIC` env-flag check in `maybeInterceptCouncilPrompt.ts` and `src/screens/REPL.tsx`. (3) Optionally drop the strict-prompt path from `prompts.ts` once you're sure the LLM-coordinator path is no longer needed.
 
 ## P3 — cleanup carryover from pre-v1
 

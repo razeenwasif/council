@@ -1,21 +1,21 @@
 /**
  * REPL-side hook for the deterministic council path.
  *
- * When `COUNCIL_DETERMINISTIC=1` is set AND council mode is on AND the
- * router would route this prompt to the council, this function takes
- * over: it calls `runCouncilFromToolContext` directly and injects the
- * resulting messages into the conversation, bypassing the LLM-coordinator
- * path entirely.
+ * **Default path as of v1.x** — when council mode is on AND the router
+ * would route this prompt to the council, this function takes over: it
+ * calls `runCouncilFromToolContext` directly and injects the resulting
+ * messages into the conversation. The LLM-coordinator-with-strict-prompt
+ * path is no longer the default; use `COUNCIL_LLM_COORDINATOR=1` to
+ * opt back into it (escape hatch for rare edge cases or debugging).
  *
  * Returns `true` when it handled the prompt — caller should early-return.
  * Returns `false` for every other case — caller should proceed with the
  * normal flow (e.g. `handlePromptSubmit`).
  *
- * This is opt-in (env flag) so the default behaviour stays the
- * battle-tested LLM-coordinator path. Once `/council run` has been
- * exercised enough in live sessions to verify the assistantMessage stub
- * and the rest of the spawn adapter, flip the default by removing the
- * env-flag check here.
+ * History: shipped behind `COUNCIL_DETERMINISTIC=1` for live-session
+ * verification; default was flipped after the deterministic path
+ * completed a full 7-voice run end-to-end (commits 578b2f6 through
+ * ed0c355 trace the bug-by-bug integration walkthrough).
  */
 
 import type { Message } from '../../types/message.js'
@@ -44,8 +44,12 @@ export interface MaybeInterceptInputs {
 export async function maybeInterceptCouncilPrompt(
   opts: MaybeInterceptInputs,
 ): Promise<boolean> {
-  // Opt-in only — keeps the default path unchanged.
-  if (process.env.COUNCIL_DETERMINISTIC !== '1') return false
+  // Escape hatch — `COUNCIL_LLM_COORDINATOR=1` opts back into the
+  // pre-flip LLM-coordinator path. Useful if the deterministic path
+  // hits an unforeseen edge case and the user needs the old behaviour
+  // without recompiling. Default behaviour (no env flag) is the
+  // deterministic path.
+  if (process.env.COUNCIL_LLM_COORDINATOR === '1') return false
 
   // Council mode must be active. If the user has /council off (or never
   // turned it on), don't intercept.

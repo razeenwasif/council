@@ -2,9 +2,11 @@ import { describe, expect, test } from 'bun:test'
 import {
   buildExecutorPrompt,
   buildRevisionPrompt,
+  ensureMainLoopModel,
   parseVerdict,
 } from './councilSpawn.js'
 import type { Review, SynthesizedPlan } from './councilOrchestrator.js'
+import type { ToolUseContext } from '../../Tool.js'
 
 const plan: SynthesizedPlan = {
   text: 'use Map, add tests, throw on NaN',
@@ -59,6 +61,55 @@ describe('buildExecutorPrompt', () => {
     expect(out).toContain('add a /health endpoint')
     expect(out).toContain(plan.text)
     expect(out).toMatch(/summarize|summary/i)
+  })
+})
+
+describe('ensureMainLoopModel', () => {
+  // Minimal context stub — just enough to exercise the patch path.
+  // Real ToolUseContext has many other fields; the function only reads
+  // and writes options.mainLoopModel.
+  const baseCtx = (mainLoopModel?: unknown): ToolUseContext =>
+    ({
+      options: {
+        mainLoopModel,
+        commands: [],
+        debug: false,
+        tools: [],
+        verbose: false,
+        mcpClients: [],
+        mcpResources: {},
+        isNonInteractiveSession: false,
+        agentDefinitions: { activeAgents: [], allAgents: [] },
+        thinkingConfig: { type: 'disabled' },
+      },
+    }) as unknown as ToolUseContext
+
+  test('returns the context unchanged when mainLoopModel is already set', () => {
+    const ctx = baseCtx('claude-opus-4-7')
+    const out = ensureMainLoopModel(ctx)
+    expect(out).toBe(ctx) // reference equality — no clone needed
+    expect(out.options.mainLoopModel).toBe('claude-opus-4-7')
+  })
+
+  test('fills mainLoopModel when undefined', () => {
+    const ctx = baseCtx(undefined)
+    const out = ensureMainLoopModel(ctx)
+    expect(out).not.toBe(ctx) // cloned
+    expect(typeof out.options.mainLoopModel).toBe('string')
+    expect((out.options.mainLoopModel as string).length).toBeGreaterThan(0)
+  })
+
+  test('fills mainLoopModel when empty string', () => {
+    const ctx = baseCtx('')
+    const out = ensureMainLoopModel(ctx)
+    expect((out.options.mainLoopModel as string).length).toBeGreaterThan(0)
+  })
+
+  test('does not mutate the input options', () => {
+    const ctx = baseCtx(undefined)
+    const before = ctx.options.mainLoopModel
+    ensureMainLoopModel(ctx)
+    expect(ctx.options.mainLoopModel).toBe(before) // input still undefined
   })
 })
 

@@ -38,6 +38,7 @@ import { randomUUID } from 'crypto'
 import { AgentTool } from '../../tools/AgentTool/AgentTool.js'
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
 import type { ToolUseContext } from '../../Tool.js'
+import { getSettings_DEPRECATED } from '../../utils/settings/settings.js'
 import {
   COUNCIL_ROLES,
   formatProposalsForSynthesizer,
@@ -337,6 +338,18 @@ async function invokeAgentTool(
     args.canUseTool ??
     (async () => ({ behavior: 'allow' as const, updatedInput: undefined }))
 
+  // Patch the toolUseContext so options.mainLoopModel is always a string.
+  // First live failure stack trace showed AgentTool.call → getAgentModel →
+  // getBedrockRegionPrefix → extractModelIdFromArn doing
+  // `modelId.startsWith('arn:')` on an undefined `mainLoopModel`. The
+  // LLM-coordinator path doesn't hit this because openclaude's tool-use
+  // loop populates mainLoopModel before invoking the AgentTool. From a
+  // slash command / hook context, mainLoopModel may not be populated yet
+  // (it's the active session's main-loop model, set during normal LLM
+  // dispatch). Fill it from the user's saved model preference or a sane
+  // Anthropic default.
+  const patchedContext = ensureMainLoopModel(args.toolUseContext)
+
   // AgentTool.call returns a Promise<{ data }> — a single terminal result,
   // not a stream. Race it against the abort signal so the orchestrator's
   // per-member timeout can unblock even when AgentTool's internal work
@@ -356,7 +369,7 @@ async function invokeAgentTool(
           subagent_type: args.subagent_type,
           description: args.description,
         } as Parameters<typeof AgentTool.call>[0],
-        args.toolUseContext,
+        patchedContext,
         stubCanUseTool,
         stubAssistantMessage,
       )
@@ -432,6 +445,57 @@ async function invokeAgentTool(
   const costUsd = 0
 
   return { text, inputTokens, outputTokens, costUsd }
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Context patching — fills mainLoopModel when undefined
+// ──────────────────────────────────────────────────────────────────────
+
+const FALLBACK_MAIN_LOOP_MODEL = 'claude-opus-4-7'
+
+/**
+ * Return a ToolUseContext with `options.mainLoopModel` guaranteed to be a
+ * non-empty string. The LLM-coordinator path populates this naturally;
+ * the deterministic spawn path drives AgentTool from a slash command /
+ * REPL hook where it may be undefined. AgentTool then passes it to
+ * `getBedrockRegionPrefix` which `.startsWith`s it unconditionally.
+ *
+ * Source order: existing value → settings.model from ~/.openclaude/
+ * settings.json → hardcoded Anthropic fallback. The picked value only
+ * affects internal Bedrock region inference (which doesn't apply for
+ * Anthropic OAuth or other providers) and analytics — model selection
+ * for each council agent still comes from the agent definition or
+ * agentRouting, not from this.
+ */
+export function ensureMainLoopModel(
+  ctx: ToolUseContext,
+): ToolUseContext {
+  if (
+    typeof ctx.options?.mainLoopModel === 'string' &&
+    ctx.options.mainLoopModel.length > 0
+  ) {
+    return ctx
+  }
+
+  let resolved: string | undefined
+  try {
+    const settings = getSettings_DEPRECATED() as { model?: string } | undefined
+    resolved =
+      typeof settings?.model === 'string' && settings.model.length > 0
+        ? settings.model
+        : undefined
+  } catch {
+    // Settings read can fail in tests / non-standard contexts. Fall through
+    // to the hardcoded default.
+  }
+
+  return {
+    ...ctx,
+    options: {
+      ...ctx.options,
+      mainLoopModel: resolved ?? FALLBACK_MAIN_LOOP_MODEL,
+    },
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────

@@ -4,7 +4,7 @@ State of the v1 scaffold as of 2026-05-24. Everything someone (or future-you) ne
 
 ## What this is
 
-A five-member AI council layered on top of OpenClaude's existing coordinator infrastructure. Architect, Implementer, Skeptic, Critic, and Tester propose in parallel; a Synthesizer reduces; an Executor writes; the five reviewers vote on the diff. See [COUNCIL.md](COUNCIL.md) for the user-facing guide.
+A seven-member AI council layered on top of OpenClaude's existing coordinator infrastructure. Architect, Implementer, Skeptic, Critic, Tester, Security analyst, and Performance analyst propose in parallel; a Synthesizer reduces; an Executor writes; the seven reviewers vote on the diff. See [COUNCIL.md](COUNCIL.md) for the user-facing guide.
 
 ## Architecture in one diagram
 
@@ -52,12 +52,14 @@ src/coordinator/council/
     └── llm.ts                  ← classifier router (API call stubbed)
 
 src/tools/AgentTool/built-in/council/
-├── prompts.ts                  ← all seven system prompts + COUNCIL_COORDINATOR_PROMPT
+├── prompts.ts                  ← all nine system prompts + COUNCIL_COORDINATOR_PROMPT
 ├── architectAgent.ts           ← claude-opus-4-7, structural lens
 ├── implementerAgent.ts         ← deepseek-chat, concrete-code lens
-├── skepticAgent.ts             ← gemini-3.5-flash, risk lens
+├── skepticAgent.ts             ← gemini-3.5-flash, correctness / edge-case lens
 ├── criticAgent.ts              ← gpt-4.1-mini, maintainability lens
-├── testerAgent.ts              ← qwen3.6-plus, test-coverage / edge-case lens
+├── testerAgent.ts              ← qwen3.6-plus, test-coverage lens
+├── securityAgent.ts            ← mistral-large-latest, threat-modeling lens
+├── performanceAgent.ts         ← llama-3.3-70b-versatile, complexity / hot-path lens
 ├── synthesizerAgent.ts         ← gemini-3.5-flash, no tools, judge
 └── executorAgent.ts            ← claude-opus-4-7, full tools, the only writer
 
@@ -125,7 +127,7 @@ Configure: Anthropic (for Claude Opus), DeepSeek (OpenAI-compatible), Google (fo
 
 Then prompt: *"Add a /health endpoint to the example HTTP server that returns 200 with a JSON body containing the current uptime."*
 
-Expected: five members spawn, synthesizer summarizes, executor writes the route, five reviewers vote. If any step fails, the failing member's task notification will say what.
+Expected: seven members spawn, synthesizer summarizes, executor writes the route, seven reviewers vote. If any step fails, the failing member's task notification will say what.
 
 ### 3. Then pick from [BACKLOG.md](BACKLOG.md) by priority
 
@@ -133,7 +135,7 @@ P1 work in order: deterministic orchestrator → router LLM classifier → cost 
 
 ## Things to be cautious about
 
-- **Don't loosen the executor's exclusivity.** Only the executor writes files. The five council members have `disallowedTools` listing every write tool — if you find yourself adding read-write tools to a council member, you're probably solving a different problem than the council solves.
+- **Don't loosen the executor's exclusivity.** Only the executor writes files. The seven council members have `disallowedTools` listing every write tool — if you find yourself adding read-write tools to a council member, you're probably solving a different problem than the council solves.
 - **Don't add a second LLM revision loop.** v1 caps revisions at 1. If the executor's first attempt + reviewers + one revise still doesn't satisfy the council, that's a signal to surface to the user, not to keep trying. Cost and time bound out fast.
 - **Don't reach for `councilOrchestrator.runCouncil()` in v1.** It throws. The v1 path is `/council on` → coordinator-LLM follows the prompt.
 - **Don't delete `src/voice/`, `src/vim/`, or unused model providers** without coordinated patching — they're coupled to other files (see CHANGELOG "Deferred" section).

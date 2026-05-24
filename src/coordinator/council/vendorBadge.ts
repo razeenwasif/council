@@ -15,6 +15,8 @@
  *   synthesizer  Google      ✦ blue
  *   critic       OpenAI      ◯ green
  *   tester       Alibaba     ▲ red
+ *   security     Mistral     ✺ purple
+ *   performance  Groq/Meta   ▶ orange
  *
  * Returns null for any agentType outside the council set so non-council
  * sub-agents (Explore, Plan, general-purpose) render unchanged.
@@ -36,6 +38,8 @@ const COUNCIL_ROLE_TO_VENDOR: Record<string, VendorBadge> = {
   synthesizer: { glyph: '✦', color: 'blue',   label: 'Google'    },
   critic:      { glyph: '◯', color: 'green',  label: 'OpenAI'    },
   tester:      { glyph: '▲', color: 'red',    label: 'Alibaba'   },
+  security:    { glyph: '✺', color: 'purple', label: 'Mistral'   },
+  performance: { glyph: '▶', color: 'orange', label: 'Groq/Meta' },
 }
 
 export function getCouncilVendorBadge(agentType: string): VendorBadge | null {

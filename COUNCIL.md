@@ -1,6 +1,6 @@
 # Council — Use Guide
 
-A five-member AI council that debates an engineering request before any code is written. The Architect, Implementer, Skeptic, Critic, and Tester each produce a structured proposal in parallel; a Synthesizer reduces them to one plan; an Executor writes the actual diff; then the five council members review the diff before it's presented to you.
+A seven-member AI council that debates an engineering request before any code is written. The Architect, Implementer, Skeptic, Critic, Tester, Security analyst, and Performance analyst each produce a structured proposal in parallel; a Synthesizer reduces them to one plan; an Executor writes the actual diff; then the seven council members review the diff before it's presented to you.
 
 ## What you get
 
@@ -12,7 +12,7 @@ prompt → [4 council members propose in parallel] → synthesizer → executor 
 
 - **Diverse perspectives**: each member is a different model running a different role lens. Disagreement is signal, not noise.
 - **Single executor**: only one agent (Claude Opus) ever writes files. No worktree merges, no race conditions.
-- **Review pass**: the same five members re-read the executor's diff and vote `pass | nit | concern | block`. Two or more `block` triggers one revision pass.
+- **Review pass**: the same seven members re-read the executor's diff and vote `pass | nit | concern | block`. Three or more `block` verdicts trigger one revision pass.
 - **Router**: not every prompt needs the full council. The router decides per-prompt whether to convene or pass through to a solo executor.
 
 ## Quick start
@@ -29,7 +29,7 @@ Then prompt normally:
 > Refactor the auth middleware to use JWT instead of sessions
 ```
 
-You'll see five members spawn in parallel, then synthesis, then execution, then review. The final diff lands in your session for accept/reject.
+You'll see seven members spawn in parallel, then synthesis, then execution, then review. The final diff lands in your session for accept/reject.
 
 ## Commands
 
@@ -57,10 +57,12 @@ You'll see five members spawn in parallel, then synthesis, then execution, then 
 |---|---|---|---|
 | Architect | `claude-opus-4-7` | structure, boundaries, design | Read-only (Read, Grep, Glob) |
 | Implementer | `deepseek-chat` | concrete code, minimal diff | Read-only |
-| Skeptic | `gemini-3.5-flash` | risks, edge cases, what could break | Read-only |
+| Skeptic | `gemini-3.5-flash` | correctness risks, edge cases | Read-only |
 | Critic | `gpt-4.1-mini` | maintainability, six-months-from-now | Read-only |
-| Tester | `qwen3.6-plus` | test coverage, edge cases, observable seams | Read-only |
-| Synthesizer | `gemini-3.5-flash` | unify the five proposals | None |
+| Tester | `qwen3.6-plus` | test coverage, edge values, observable seams | Read-only |
+| Security | `mistral-large-latest` | threat modeling, trust boundaries, bug classes | Read-only |
+| Performance | `llama-3.3-70b-versatile` | complexity, hot paths, allocations | Read-only |
+| Synthesizer | `gemini-3.5-flash` | unify the seven proposals | None |
 | Executor | `claude-opus-4-7` | execute the plan, write the diff | Full (Bash, Edit, Write) |
 
 Override any binding per-role in `~/.openclaude/settings.json`:
@@ -72,6 +74,8 @@ Override any binding per-role in `~/.openclaude/settings.json`:
     "skeptic":     "gemini-3.5-flash",
     "critic":      "gpt-4.1-mini",
     "tester":      "qwen3.6-plus",
+    "security":    "mistral-large-latest",
+    "performance": "llama-3.3-70b-versatile",
     "synthesizer": "gemini-3.5-flash"
   }
 }
@@ -96,11 +100,11 @@ Anything else convenes the council. The bias is intentional: when the heuristic 
 
 Approximate cost per non-trivial council prompt (varies with prompt length and codebase size):
 
-- Council propose pass: ~$0.10–0.45 (5 members × cheap-to-mid models; Tester via Qwen's 1M-free-tokens promo is effectively free for now)
+- Council propose pass: ~$0.10–0.45 (7 members; Tester/Security/Performance all on free tiers — effectively free for now)
 - Synthesizer: ~$0.01–0.05
 - Executor: ~$0.50–2.00 (this dominates; it's Claude Opus doing real work via OAuth Max — covered by subscription within rate limits)
-- Review pass: ~$0.06–0.25 (5 verdicts now)
-- **Total: ~$0.70–2.75**
+- Review pass: ~$0.08–0.30 (7 verdicts now)
+- **Total: ~$0.70–2.80**
 
 Solo mode skips all but the executor, so simple prompts cost the same as standard OpenClaude.
 

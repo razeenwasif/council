@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Security + Performance seats added (6th and 7th members)
+
+Council expands from five to seven voices with two new specialist roles. Both run on free-tier providers — `mistral-large-latest` via Mistral La Plateforme for Security, `llama-3.3-70b-versatile` via Groq for Performance.
+
+- **Security** — threat-modeling / trust-boundary lens. Names specific bug classes (injection, path traversal, SSRF, weak crypto, secret leakage) rather than vague "security concerns." Prompted to defer general correctness to the Skeptic and stay in the security-relevant subset.
+- **Performance** — runtime-cost / scaling lens. States the expected N, the chosen complexity, and the failure mode if violated (e.g. "O(n²) collapses at n > 50k"). Prompted to defer correctness to the Skeptic and threat modeling to Security.
+- Skeptic prompt updated to explicitly cede threat-modeling and big-O concerns to the new specialists — keeps the voices distinct instead of overlapping.
+
+New files:
+- `src/tools/AgentTool/built-in/council/securityAgent.ts` — mistral-large-latest, color: purple
+- `src/tools/AgentTool/built-in/council/performanceAgent.ts` — llama-3.3-70b-versatile, color: orange
+
+Updated:
+- `prompts.ts` — SECURITY_PROMPT + PERFORMANCE_PROMPT added. All role prompts now read "seven-member council" / "six other council members." SYNTHESIZER_PROMPT reads seven proposals with consensus threshold ≥5. COUNCIL_COORDINATOR_PROMPT spawns 7 in step 1 with both new entries in the role→model table. Revision quorum lifted from `≥2 blocks` (40% of 5) to `≥3 blocks` (43% of 7) — preserves the same proportion.
+- `councilMode.ts` — getCouncilAgents() now returns 9 agents (7 voices + synth + executor)
+- `councilOrchestrator.ts` — CouncilRole extended with `'security'` and `'performance'`
+- `vendorBadge.ts` — security: { '✺', purple, 'Mistral' }, performance: { '▶', orange, 'Groq/Meta' }
+- `~/.openclaude/settings.json` — agentModels[mistral-large-latest] (api.mistral.ai/v1), agentModels[llama-3.3-70b-versatile] (api.groq.com/openai/v1), agentRouting.security and .performance
+- COUNCIL.md, HANDOFF.md, README.md — count + model table + role list + cost estimates updated
+
 ### Tester seat added (5th member, Qwen3.6-Plus)
 
 Council expands from four voices to five with a new **Tester** role focused on test coverage and edge cases. Distinct from the Skeptic (who flags what could break) — the Tester ensures we have tests that *catch* those breaks. Enumerates concrete cases per proposal (boundary values, NaN inputs, empty / max-length / unicode edges) and aligns with existing repo test conventions.

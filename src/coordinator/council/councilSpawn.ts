@@ -362,11 +362,18 @@ async function invokeAgentTool(
       )
     } catch (err) {
       const inner = err instanceof Error ? err.message : String(err)
+      // Pull the first ~10 stack frames so the next failure surfaces the
+      // exact site of the crash without dumping the whole thing.
+      const stackTail =
+        err instanceof Error && err.stack
+          ? '\n\nStack (top frames):\n' +
+            err.stack.split('\n').slice(0, 12).join('\n')
+          : ''
       const enriched = new Error(
         `AgentTool.call failed for subagent_type="${args.subagent_type}" via deterministic spawn adapter: ${inner}. ` +
-          `If you're running with COUNCIL_DETERMINISTIC=1, drop the env flag to fall back to the LLM-coordinator path while we iterate.`,
+          `If you're running with COUNCIL_DETERMINISTIC=1, drop the env flag to fall back to the LLM-coordinator path while we iterate.` +
+          stackTail,
       )
-      // Preserve the original stack so the underlying frame is debuggable.
       if (err instanceof Error && err.stack) {
         ;(enriched as Error & { cause?: unknown }).cause = err
       }

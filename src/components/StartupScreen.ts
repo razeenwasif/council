@@ -208,7 +208,7 @@ export function printStartupScreen(modelOverride?: string): void {
   out.push('')
 
   // Tagline \u2014 \u2726 on either side in accent, body in cream.
-  out.push(`  ${ansiRgb(...ACCENT)}\u2726${RESET} ${ansiRgb(...CREAM)}Four voices. One plan. Real code.${RESET} ${ansiRgb(...ACCENT)}\u2726${RESET}`)
+  out.push(`  ${ansiRgb(...ACCENT)}\u2726${RESET} ${ansiRgb(...CREAM)}Seven voices. One plan. Real code.${RESET} ${ansiRgb(...ACCENT)}\u2726${RESET}`)
   out.push('')
 
   // Inline key/value labels \u2014 no box, no border. Label dim, value cream

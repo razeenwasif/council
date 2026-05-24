@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### `/router llm` classifier wired
+
+The LLM-based router strategy is no longer a stub. `/router llm` now makes a real chat-completions call to `gemini-3.5-flash` (or whichever model is bound to `agentRouting.classifier` if set, with `gemini-3.5-flash` as the default fallback) and routes solo vs council based on the result.
+
+- `src/coordinator/council/router/llm.ts` — rewritten. Implements `classify()` (one-shot chat call, temperature 0, `max_tokens: 8`, 4s timeout, AbortController-aborted) and a stricter `normalizeClassifierOutput()` that rejects ambiguous responses where both "solo" and "council" appear. Falls back to the heuristic on: missing config, non-2xx response, malformed JSON, network error, timeout, ambiguous parse. Reason string surfaces the failure mode so `/router show` and debug logs are useful.
+- Dependency injection: `classify()` and `decideLLM()` accept an optional `fetcher` argument (defaults to `globalThis.fetch`) so the test suite doesn't monkeypatch globals. Same pattern the orchestrator uses.
+- `src/coordinator/council/router/llm.test.ts` — new. **21 cases / 46 expects**, all pass under `bun test`. Covers: normalize edge cases (capitalization, quotes, trailing punctuation, preambles, ambiguity rejection), profile resolution from settings (default model + `agentRouting.classifier` override), request shape (URL, Authorization header, body fields), response handling (200 success, non-2xx, malformed body, off-script response), failure modes (network throw, timeout abort), and the full `decideLLM` decision wrapper including heuristic fallback.
+
+Council tests now: **38 pass · 0 fail · 95 expects · ~700ms**.
+
 ### Deterministic orchestrator + timeouts + cost ceiling + `/council status` detail
 
 Three BACKLOG P1 items shipped in one pass, plus the P2 status-detail polish.

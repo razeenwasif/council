@@ -4,6 +4,7 @@ Things deliberately not built in v1, grouped by priority. Each item names what's
 
 ## Done (since BACKLOG was first written)
 
+- ✓ **`/router llm` classifier wired** — real gemini-3.5-flash call with timeout, AbortController, stricter ambiguity-rejecting parse, full heuristic fallback. 21 unit tests.
 - ✓ **Build and verify** — passing across all commits since `f26bdb3`.
 - ✓ **End-to-end smoke** — 6 council-authored artifacts in `src/utils/council/` (formatCost, withRetry, lruCache, clamp, parseQueryString + parseQueryString revision). The parseQueryString run exercised the full block→revision→retry path with all 7 voices reporting.
 - ✓ **Vendor badges in agent panel** (`vendorBadge.ts`) — covers the spirit of the original "color-coded role labels" P2 item via a different mechanism (colored glyphs vs. role-name color).
@@ -11,10 +12,6 @@ Things deliberately not built in v1, grouped by priority. Each item names what's
 - ✓ **Tester, Security, Performance seats** — council went from 4 → 5 → 7 voices. Quorum math scaled (consensus ≥5/7, revision ≥3/7).
 
 ## P1 — high-impact, fits within v1.x
-
-### Wire `/router llm` classifier
-**Why deferred**: provider client API surface varies; stubbed to fall back to heuristic.
-**Work**: in `src/coordinator/council/router/llm.ts`, replace `classify()` with a real call to `gemini-3.5-flash` via the provider resolver at `src/services/api/agentRouting.ts`. Keep the heuristic fallback for transient API errors.
 
 ### Wire the deterministic orchestrator into the prompt flow
 **Status**: `runCouncil()` is implemented in `src/coordinator/council/councilOrchestrator.ts` with dependency-injected spawn, per-member timeout, per-query cost ceiling, and unit tests. The remaining work is the **integration adapter** — providing a real `spawnAgent` implementation that invokes openclaude's `runAgent` (or equivalent) and the wiring that routes prompts through `runCouncil` instead of through the LLM-coordinator-with-strict-prompt path.

@@ -3568,6 +3568,24 @@ export function REPL({
 
     // Ensure SessionStart hook context is available before the first API call.
     await awaitPendingHooks();
+
+    // Council deterministic-path hook: when COUNCIL_DETERMINISTIC=1 is set,
+    // intercept council-worthy prompts and route them through
+    // runCouncilFromToolContext instead of the LLM-coordinator path. The
+    // hook returns true iff it handled the prompt; false (the default for
+    // every non-council case) lets handlePromptSubmit run as usual.
+    if (process.env.COUNCIL_DETERMINISTIC === '1') {
+      const { maybeInterceptCouncilPrompt } = await import(
+        '../coordinator/council/maybeInterceptCouncilPrompt.js'
+      );
+      const intercepted = await maybeInterceptCouncilPrompt({
+        input,
+        getToolUseContext,
+        setMessages,
+      });
+      if (intercepted) return;
+    }
+
     await handlePromptSubmit({
       input,
       helpers,

@@ -7,6 +7,7 @@ import { Byline } from 'src/components/design-system/Byline.js';
 import { KeyboardShortcutHint } from 'src/components/design-system/KeyboardShortcutHint.js';
 import type { z } from 'zod/v4';
 import { AgentProgressLine } from '../../components/AgentProgressLine.js';
+import { CouncilOrStacked } from '../../components/CouncilGrid.js';
 import { FallbackToolUseErrorMessage } from '../../components/FallbackToolUseErrorMessage.js';
 import { FallbackToolUseRejectedMessage } from '../../components/FallbackToolUseRejectedMessage.js';
 import { Markdown } from '../../components/Markdown.js';
@@ -754,7 +755,28 @@ export function renderGroupedAgentToolUse(toolUses: Array<{
         </Text>
         {!allAsync && <CtrlOToExpand />}
       </Box>
-      {agentStats.map((stat, index) => <AgentProgressLine key={stat.id} agentType={stat.agentType} description={stat.description} descriptionColor={stat.descriptionColor} taskDescription={stat.taskDescription} toolUseCount={stat.toolUseCount} tokens={stat.tokens} color={stat.color} isLast={index === agentStats.length - 1} isResolved={stat.isResolved} isError={stat.isError} isAsync={stat.isAsync} shouldAnimate={shouldAnimate} lastActivity={stat.lastActivity} hideType={allSameType} name={stat.name} />)}
+      {/* Council mode + wide terminal → grid; otherwise stacked rows. The
+         CouncilOrStacked wrapper consolidates both checks so this site
+         doesn't have to use the terminal-size hook directly. */}
+      <CouncilOrStacked
+        agents={agentStats.map(s => ({
+          id: s.id,
+          agentType: s.agentType,
+          description: s.description,
+          name: s.name,
+          descriptionColor: s.descriptionColor,
+          taskDescription: s.taskDescription,
+          toolUseCount: s.toolUseCount,
+          tokens: s.tokens,
+          color: s.color,
+          isResolved: s.isResolved,
+          isError: s.isError,
+          isAsync: s.isAsync,
+          lastActivity: s.lastActivity,
+        }))}
+        shouldAnimate={shouldAnimate}
+        stackedFallback={agentStats.map((stat, index) => <AgentProgressLine key={stat.id} agentType={stat.agentType} description={stat.description} descriptionColor={stat.descriptionColor} taskDescription={stat.taskDescription} toolUseCount={stat.toolUseCount} tokens={stat.tokens} color={stat.color} isLast={index === agentStats.length - 1} isResolved={stat.isResolved} isError={stat.isError} isAsync={stat.isAsync} shouldAnimate={shouldAnimate} lastActivity={stat.lastActivity} hideType={allSameType} name={stat.name} />)}
+      />
     </Box>;
 }
 export function userFacingName(input: Partial<{

@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+### Council grid TUI + opt-in deterministic REPL hook
+
+P1's last-mile hook and P2's grid TUI both shipped behind opt-in toggles so the proven LLM-coordinator path stays the default.
+
+**Council grid TUI** (`src/components/CouncilGrid.tsx`) — alternative layout for the agent panel that arranges council voices in a 2- or 3-column grid instead of stacked rows. Width-driven (uses `useTerminalSize`): ≥180 cols → 3 columns, ≥100 cols → 2 columns, <100 cols → stacked fallback. Auto-activates when ≥5 council-role agents are present in the same group (the agent-type heuristic in `shouldUseCouncilGrid` keeps the grid out of non-council sub-agent renders). Vendor badges + tinted `›` thinking markers carry through cleanly. The wrapper `CouncilOrStacked` consolidates both checks so the render-function caller (`renderGroupedAgentToolUse`) doesn't have to use Ink hooks directly. 6 unit tests for the activation heuristic.
+
+**Deterministic REPL hook** — when `COUNCIL_DETERMINISTIC=1` is set in the environment, the REPL's `onSubmit` intercepts council-worthy prompts (council mode on + router routes to council + non-slash input) and calls `runCouncilFromToolContext` directly. Bypasses the LLM coordinator entirely. The interception logic lives in `src/coordinator/council/maybeInterceptCouncilPrompt.ts` — pure, testable, 9 unit tests for the result/error formatters. The REPL change in `src/screens/REPL.tsx` is one dynamic-import block (~15 lines, gated entirely on the env flag). Default behaviour is unchanged when the flag isn't set.
+
+To try the deterministic path:
+```
+COUNCIL_DETERMINISTIC=1 council
+> /council on
+> add a /health endpoint to the example server
+```
+
+The user message + structured assistant result appear in the transcript; the AgentTool agent panel (now possibly grid-rendered) shows live progress per voice. If anything breaks, drop the env flag and the LLM-coordinator path takes over again — no rollback needed.
+
+Council test totals: **60 pass · 0 fail · 141 expects · ~620ms**.
+
 ### `/council on|off` toggles mid-session + `/council run <prompt>` deterministic path
 
 Two P1 items closed.

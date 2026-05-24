@@ -4,6 +4,8 @@ Things deliberately not built in v1, grouped by priority. Each item names what's
 
 ## Done (since BACKLOG was first written)
 
+- ✓ **Council grid TUI** — N×M layout (2 or 3 columns based on terminal width) for the council agent panel, auto-activated when ≥5 council-role agents share a group. Width-aware fallback to stacked rows. 6 unit tests.
+- ✓ **Deterministic REPL hook** — `COUNCIL_DETERMINISTIC=1` opts into the deterministic path; REPL's `onSubmit` intercepts council-worthy prompts and routes through `runCouncilFromToolContext`. Gated behind env flag so default behaviour is unchanged. 9 unit tests for the formatter helpers.
 - ✓ **`/council on|off` toggles mid-session** — `clearAgentDefinitionsCache()` called on toggle so the next prompt re-reads the env vars and re-registers the right agent set. `getCoordinatorSystemPrompt()` already reads env at call time so the prompt switches naturally. No more "must relaunch" caveat in the help text.
 - ✓ **Deterministic orchestrator API + `/council run`** — `runCouncilFromToolContext` wires `runCouncil` to `AgentTool.call()` via a stub-`assistantMessage` adapter. Available as `/council run <prompt>` for explicit testing while the LLM-coordinator path remains the default. Tests: 10 cases for the pure helpers (parseVerdict, prompt builders). Last-mile verification (replacing the LLM coordinator at the REPL turn handler) tracked above.
 - ✓ **`/router llm` classifier wired** — real gemini-3.5-flash call with timeout, AbortController, stricter ambiguity-rejecting parse, full heuristic fallback. 21 unit tests.
@@ -13,20 +15,12 @@ Things deliberately not built in v1, grouped by priority. Each item names what's
 - ✓ **Live thinking preview** in the agent panel — extracts the last sentence-or-clause of the current assistant text and surfaces it italic+dim on the AgentProgressLine status row.
 - ✓ **Tester, Security, Performance seats** — council went from 4 → 5 → 7 voices. Quorum math scaled (consensus ≥5/7, revision ≥3/7).
 
-## P1 — high-impact, fits within v1.x
+## P1 — last-mile verification
 
-### Replace the LLM-coordinator path with `runCouncilFromToolContext` as the default
-**Status**: `runCouncilFromToolContext` is implemented and exposed via `/council run <prompt>` (see `src/coordinator/council/councilSpawn.ts` and the `run` subcommand in `src/commands/council/council.ts`). It drives the existing `AgentTool.call()` machinery directly via a thin adapter that synthesizes a stub `assistantMessage` (analytics IDs are random UUIDs — harmless but bogus). All seven council members + synthesizer + executor + review pass + revision are wired. Council mode (the default `council` binary) still uses the LLM-coordinator-with-strict-prompt path until this new path is verified in a real session.
+### Verify the deterministic path in a live session, then flip the default
+**Status**: everything is in place. `runCouncilFromToolContext` is implemented and tested. `/council run <prompt>` exposes it explicitly. The REPL hook in `onSubmit` intercepts council-worthy prompts when `COUNCIL_DETERMINISTIC=1` is set. The strict-prompt LLM-coordinator path remains the default.
 
-**Why this remains P1**: needs first-run verification. The `assistantMessage` stub is the only sketchy piece — if openclaude's internal pathways read fields beyond `.message.id` / `.requestId` from it, the stub will need extending. Watch the first `/council run` invocation for surprises.
-
-**Work**: (1) run `/council run <a substantive prompt>` end-to-end in a live session; iterate on the assistantMessage stub if anything breaks. (2) Once verified, replace the LLM-coordinator-prompt path at the REPL turn handler — intercept the user's prompt when `isCouncilMode()` is on and call `runCouncilFromToolContext` directly instead of letting the LLM coordinator orchestrate. (3) Drop the strict-prompt path from `prompts.ts` (it's been carrying weight; can retire).
-
-## P2 — UX polish
-
-### 2×2 (or N×M) live grid TUI — partial
-**Status**: live thinking preview + vendor badges shipped in the existing stacked agent panel, which covers ~70% of the "see what each voice is doing" UX goal. The original "true grid" remains future work for users who want side-by-side panes per voice instead of stacked rows.
-**Work**: build `src/components/CouncilGrid.tsx` — N constrained-size `<Box>` panes in flexbox (probably 2×4 for 7 voices, or 3×3 with one empty slot), each rendering a member's `VerboseAgentTranscript` (see `src/tools/AgentTool/UI.tsx:246`). Width-aware breakpoint to fall back to stacked layout below ~120 cols. Wire into the screen tree so it activates only when `isCouncilMode()` is true and the council is mid-run.
+**Remaining work**: (1) run with `COUNCIL_DETERMINISTIC=1 council` and exercise a substantive prompt end-to-end. Verify the agent panel still shows live progress per voice (it should — the spawn adapter calls AgentTool.call which goes through the same UI hooks the LLM coordinator uses), verify the `assistantMessage` stub doesn't break anything, verify the final summary lands as a clean assistant message. (2) Once stable, flip the default by removing the `COUNCIL_DETERMINISTIC` env-flag check in `maybeInterceptCouncilPrompt.ts` and `src/screens/REPL.tsx`. (3) Optionally drop the strict-prompt path from `prompts.ts` once you're sure the LLM-coordinator path is no longer needed.
 
 ## P3 — cleanup carryover from pre-v1
 

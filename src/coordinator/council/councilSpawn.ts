@@ -35,6 +35,7 @@
  */
 
 import { randomUUID } from 'crypto'
+import { getTotalCost } from '../../cost-tracker.js'
 import { AgentTool } from '../../tools/AgentTool/AgentTool.js'
 import { AGENT_TOOL_NAME } from '../../tools/AgentTool/constants.js'
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
@@ -187,7 +188,19 @@ export async function runCouncilFromToolContext(
     setMessages: opts.setMessages,
   })
 
-  return runCouncil({
+  // Snapshot global session cost before the council runs. AgentTool's
+  // internal cost tracking flows into the global cost-tracker via
+  // addToTotalSessionCost (in claude.ts), but AgentTool.call's return
+  // value doesn't expose a flat per-call cost — so the orchestrator's
+  // per-spawn `costUsd` is always 0 in the deterministic path. The
+  // delta of getTotalCost() across the council run is our best
+  // approximation of "what this council prompt actually cost." Not
+  // attributable per-role (the global counter doesn't carry context),
+  // but accurate at the total level. Per-role attribution would
+  // require either AsyncLocalStorage threading or hooking each spawn's
+  // addToTotalSessionCost — both larger scopes.
+  const costBefore = getTotalCost()
+  const result = await runCouncil({
     userPrompt: opts.userPrompt,
     emitStatus: opts.emitStatus ?? (() => {}),
     costCeilingUsd: opts.costCeilingUsd,
@@ -195,6 +208,17 @@ export async function runCouncilFromToolContext(
     longTimeoutMs: opts.longTimeoutMs,
     adapters,
   })
+  const costAfter = getTotalCost()
+  const deltaCost = Math.max(0, costAfter - costBefore)
+  return {
+    ...result,
+    // Override only if the orchestrator's per-spawn tally is 0 (the
+    // deterministic-path case). When per-spawn cost IS populated (e.g.
+    // a future adapter that surfaces it), trust that over the global
+    // delta since it's attributable.
+    totalCostUsd:
+      result.totalCostUsd > 0 ? result.totalCostUsd : deltaCost,
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────

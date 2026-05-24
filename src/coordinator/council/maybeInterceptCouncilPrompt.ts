@@ -150,8 +150,15 @@ export function formatCouncilResult(result: {
       `⚠ ${failures.length} voice${failures.length === 1 ? '' : 's'} failed: ${failSummary}. Run continued with the remaining majority.`,
     )
   }
+  // costSuffix: when totalCostUsd is 0 we fell off the global-delta path
+  // (rare — happens only in pure unit-test adapters); point users at the
+  // canonical session cost via /stats or the ledger via /spend.
+  const costNote =
+    result.totalCostUsd > 0
+      ? ` (per-session running total in \`/cost\`, historical in \`/spend\`)`
+      : ` (cost unavailable for this path — see \`/cost\` and \`/spend\`)`
   lines.push(
-    `Duration: ${(result.totalDurationMs / 1000).toFixed(1)}s · Reported cost: $${result.totalCostUsd.toFixed(4)} (real cost in \`/stats\`).`,
+    `Duration: ${(result.totalDurationMs / 1000).toFixed(1)}s · Cost this run: $${result.totalCostUsd.toFixed(4)}${costNote}.`,
   )
   if (result.revised) {
     lines.push('')

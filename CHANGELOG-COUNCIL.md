@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Three follow-up fixes from live observation
+
+**1. IMPLEMENTER_PROMPT tightened with mandatory pre-proposal read step.** Live run showed DeepSeek (Implementer) referencing files (`sleep.ts`, `retry.ts`) that don't exist in the repo — hallucinating without reading first. The model has Read/Grep/Glob available but wasn't using them. Updated the prompt to make pre-proposal reading mandatory: if you say "follow the pattern in X.ts", you must have Read X.ts. Architects/Critics aren't affected (their lens is structure/maintainability, not concrete code), and Security/Performance keep their "low surface = short proposal" allowance — only Implementer is held to file-grounding.
+
+**2. HEADLINE_DIRECTIVE rewritten as `<critical_first_output_rule>` XML block + three-tier fallback extractor.** claude-opus-4-7 (Architect) kept dropping `## Headline` despite the prior directive. New directive uses XML tags (which Opus weights more heavily than markdown), names the exact regex the parser uses, and explicitly addresses the "tool call first" failure mode. PLUS — defensive `extractHeadline()` now has three tiers:
+   1. `## Headline\n<line>` (the prompt's required format)
+   2. `## Headline: foo` inline form
+   3. **Fallback**: first informative prose sentence (skips headings, blockquotes, code fences, list markers), clipped to first sentence boundary or 140 chars. Returns null only when the body is genuinely empty.
+
+   So even if a future model drops the section, the user sees the model's actual voice in the preview instead of a generic placeholder. 9 new tests for fallback paths (skipping bullets, code fences, empty sections, long-text clipping).
+
+**3. Real cost surfaced in `CouncilResult.totalCostUsd`.** Final summary was showing `$0.0000` because `invokeAgentTool` sets `costUsd: 0` (AgentTool.call doesn't expose flat cost). `runCouncilFromToolContext` now snapshots `getTotalCost()` before/after the run and overrides `totalCostUsd` with the delta when the per-spawn tally is 0. Not per-role attributable (the global counter doesn't carry context) but accurate at the total level. Result messages now read `Cost this run: $0.0421 (running total in /cost, history in /spend)` instead of `Reported cost: $0.0000`.
+
+Council test totals: **146 pass · 0 fail · 364 expects · ~779ms** (was 140/355). Added 6 new tests for the headline fallback extractor.
+
 ### `/spend` slash command + cross-session usage ledger
 
 Append-only per-session ledger at `~/.openclaude/usage.jsonl` so spend tracking survives across council sessions. New `/spend` command renders per-day and per-model breakdowns with an ASCII sparkline trend.

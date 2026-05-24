@@ -120,8 +120,12 @@ function formatCouncilResultSummary(result: {
       `⚠ ${failures.length} voice${failures.length === 1 ? '' : 's'} failed: ${failSummary}.`,
     )
   }
+  const costSuffix =
+    result.totalCostUsd > 0
+      ? ` (running total in /cost, history in /spend)`
+      : ` (unavailable — see /cost and /spend)`
   lines.push(
-    `Duration: ${(result.totalDurationMs / 1000).toFixed(1)}s · Cost: $${result.totalCostUsd.toFixed(4)}`,
+    `Duration: ${(result.totalDurationMs / 1000).toFixed(1)}s · Cost this run: $${result.totalCostUsd.toFixed(4)}${costSuffix}`,
   )
   if (result.revised) {
     lines.push(`Revision applied: ${result.revised.summary}`)

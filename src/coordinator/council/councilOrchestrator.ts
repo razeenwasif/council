@@ -305,32 +305,72 @@ export function selectBlockingReviews(reviews: Review[]): Review[] {
 }
 
 /**
- * Pull a one-line summary out of a proposal body. The base prompt asks each
- * council member to lead with `## Headline\n<one sentence>` — we extract that.
+ * Pull a one-line summary out of a proposal body.
  *
- * Returns null when the member didn't comply (rare but possible — gemini /
- * mistral occasionally drop required sections). Caller should fall back to a
- * generic arrival ping in that case.
+ * Three-tier extraction (most-preferred first):
+ *   1. `## Headline\n<one sentence>` — the format the prompt mandates.
+ *   2. `## Headline: foo` inline form — single-line variant some models prefer.
+ *   3. **Best-effort fallback**: first informative sentence of the proposal
+ *      (skipping markdown headings, blockquotes, and code fences). Used when
+ *      the model dropped the required section — better to show *something*
+ *      from the proposal than a generic "no headline section emitted"
+ *      placeholder that hides the model's actual voice.
+ *
+ * Returns null only when the proposal body is genuinely empty.
  */
 export function extractHeadline(text: string): string | null {
-  // Match `## Headline` (any heading depth, any case, optional trailing colon),
-  // then capture the first non-empty line that follows. The `[^\n#]` on the
-  // first captured char rejects the case where the model emitted an empty
-  // headline section and the next match is actually the *next* heading
-  // (`## Headline\n\n## Reasoning` → null, not "## Reasoning").
+  // Tier 1: full `## Headline\n<line>` shape.
   const m = text.match(/^#{1,6}\s*Headline\s*:?\s*\n+([^\n#][^\n]*)/im)
   if (m && m[1]) {
     const line = stripBlockquoteAndQuotes(m[1].trim())
     if (line) return line
   }
-  // Fallback: inline form `## Headline: foo` on a single line (no newline
-  // between heading and content).
+  // Tier 2: inline `## Headline: foo` on a single line.
   const inline = text.match(/^#{1,6}\s*Headline\s*:\s*([^\n]+)/im)
   if (inline && inline[1]) {
     const line = stripBlockquoteAndQuotes(inline[1].trim())
     if (line) return line
   }
+  // Tier 3: fallback — first informative sentence. Walk the lines, skip
+  // headings/blockquotes/code-fences, take the first prose line, then
+  // clip at the first sentence boundary (or 140 chars).
+  return extractFirstSentence(text)
+}
+
+function extractFirstSentence(text: string): string | null {
+  let inCodeFence = false
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    if (!line) continue
+    if (line.startsWith('```')) {
+      inCodeFence = !inCodeFence
+      continue
+    }
+    if (inCodeFence) continue
+    if (/^#{1,6}\s/.test(line)) continue // markdown heading
+    if (line.startsWith('>')) continue // blockquote
+    if (line.startsWith('---')) continue // hr / yaml-frontmatter delimiter
+    if (line.startsWith('-') || line.startsWith('*') || /^\d+\./.test(line)) {
+      // list item — strip the bullet, take the rest
+      const stripped = line.replace(/^[-*]\s+|^\d+\.\s+/, '').trim()
+      if (stripped) return clipToSentence(stripped)
+      continue
+    }
+    return clipToSentence(line)
+  }
   return null
+}
+
+function clipToSentence(s: string): string {
+  // Clip at the first sentence-ending punctuation followed by space or
+  // end-of-string. Falls back to first 140 chars + ellipsis if no
+  // sentence break is found in the first 200 chars.
+  const sentenceEnd = s.match(/^[^.!?]+[.!?](?=\s|$)/)
+  if (sentenceEnd) {
+    const out = sentenceEnd[0].trim()
+    return out.length > 200 ? out.slice(0, 197) + '…' : out
+  }
+  return s.length > 140 ? s.slice(0, 137) + '…' : s
 }
 
 function stripBlockquoteAndQuotes(s: string): string {

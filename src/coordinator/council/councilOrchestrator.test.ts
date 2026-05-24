@@ -195,19 +195,50 @@ describe('extractHeadline', () => {
     expect(extractHeadline(text)).toBe('The chosen approach is X.')
   })
 
-  test('returns null when no headline section is present', () => {
-    const text = `## Reasoning\nstuff here\n## Proposal\nmore stuff`
-    expect(extractHeadline(text)).toBeNull()
+  test('falls back to first prose line when no headline section is present', () => {
+    const text = `## Reasoning\nThe right approach is to use a Map. We bound it at 1000 entries.\n## Proposal\nmore stuff`
+    // Skips the heading, takes the first prose line, clips at sentence end.
+    expect(extractHeadline(text)).toBe('The right approach is to use a Map.')
   })
 
-  test('returns null when the headline line is empty', () => {
-    const text = `## Headline\n\n## Reasoning\nbody`
-    expect(extractHeadline(text)).toBeNull()
+  test('fallback returns the whole line when there is no sentence-ending punctuation', () => {
+    const text = `## Reasoning\nstuff here without a period\n## Proposal\nmore`
+    expect(extractHeadline(text)).toBe('stuff here without a period')
+  })
+
+  test('fallback skips bullet markers and grabs the first list-item sentence', () => {
+    const text = `## Proposal\n- Use a Map keyed by the first arg.\n- Add tests.\n`
+    expect(extractHeadline(text)).toBe('Use a Map keyed by the first arg.')
+  })
+
+  test('fallback skips code fences', () => {
+    const text = `\`\`\`ts\nconst x = 1\n\`\`\`\nThe helper should be pure.`
+    expect(extractHeadline(text)).toBe('The helper should be pure.')
+  })
+
+  test('falls back when the headline line is empty (skips to next prose)', () => {
+    const text = `## Headline\n\n## Reasoning\nWe need a debounce.`
+    expect(extractHeadline(text)).toBe('We need a debounce.')
+  })
+
+  test('returns null only when the body is genuinely empty', () => {
+    expect(extractHeadline('')).toBeNull()
+    expect(extractHeadline('\n\n\n')).toBeNull()
+    expect(extractHeadline('## Just\n## Headings')).toBeNull()
   })
 
   test('case-insensitive on the heading word', () => {
     const text = `### HEADLINE\nWorks regardless of case.\n`
     expect(extractHeadline(text)).toBe('Works regardless of case.')
+  })
+
+  test('clips long unbroken text to 140 chars with ellipsis', () => {
+    const long = 'x'.repeat(500)
+    const text = `## Proposal\n${long}`
+    const out = extractHeadline(text)
+    expect(out).not.toBeNull()
+    expect(out!.length).toBeLessThan(150)
+    expect(out!.endsWith('…')).toBe(true)
   })
 })
 
@@ -232,14 +263,24 @@ describe('formatProposalArrival', () => {
     )
   })
 
-  test('falls back when the proposal omits a headline section', () => {
+  test('falls back to first prose sentence when the proposal omits ## Headline', () => {
     const p = makeProposal('skeptic', {
       modelId: 'gemini-3.5-flash',
-      text: '## Reasoning\nno headline here',
+      text: '## Reasoning\nThe naive approach has a race condition. We must guard the timer.',
+    })
+    const out = formatProposalArrival(p)
+    expect(out).toBe(
+      '> **Skeptic** (gemini-3.5-flash): The naive approach has a race condition.',
+    )
+  })
+
+  test('falls back to the placeholder string only when the body is genuinely empty', () => {
+    const p = makeProposal('skeptic', {
+      modelId: 'gemini-3.5-flash',
+      text: '',
     })
     const out = formatProposalArrival(p)
     expect(out).toContain('**Skeptic**')
-    expect(out).toContain('(gemini-3.5-flash)')
     expect(out).toContain('no headline section emitted')
   })
 })

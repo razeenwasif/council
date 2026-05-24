@@ -114,10 +114,36 @@ export function readUsageLedger(): UsageLedgerEntry[] {
 }
 
 /**
+ * Collapse the raw ledger to one entry per sessionId — the latest
+ * entry by timestamp wins. Necessary because `saveCurrentSessionCosts`
+ * can fire multiple times for the same session (process exit + every
+ * `/resume` switch), each carrying the CUMULATIVE in-memory total.
+ * Naive sum would double-count those.
+ *
+ * Exported so the /spend command + tests can call it directly when
+ * they want a deduped view; the aggregate helpers below also call it
+ * internally.
+ */
+export function dedupeBySessionId(
+  entries: UsageLedgerEntry[],
+): UsageLedgerEntry[] {
+  const latestPerSession = new Map<string, UsageLedgerEntry>()
+  for (const entry of entries) {
+    const existing = latestPerSession.get(entry.sessionId)
+    // String compare works because ts is ISO 8601 — lexicographic order
+    // matches chronological order.
+    if (!existing || entry.ts > existing.ts) {
+      latestPerSession.set(entry.sessionId, entry)
+    }
+  }
+  return Array.from(latestPerSession.values())
+}
+
+/**
  * Aggregate a flat list of records into per-day per-model totals. The
  * day key is the ISO date in the local timezone (YYYY-MM-DD); records
  * are bucketed by `ts.slice(0, 10)` in UTC for stability across
- * machines.
+ * machines. Dedupes by sessionId first (see `dedupeBySessionId`).
  */
 export interface DailyTotals {
   /** YYYY-MM-DD in UTC. */
@@ -128,8 +154,9 @@ export interface DailyTotals {
 }
 
 export function aggregateByDay(entries: UsageLedgerEntry[]): DailyTotals[] {
+  const deduped = dedupeBySessionId(entries)
   const byDate = new Map<string, DailyTotals>()
-  for (const entry of entries) {
+  for (const entry of deduped) {
     const date = entry.ts.slice(0, 10) // YYYY-MM-DD in UTC
     let bucket = byDate.get(date)
     if (!bucket) {
@@ -170,8 +197,9 @@ export interface ModelTotals {
 }
 
 export function aggregateByModel(entries: UsageLedgerEntry[]): ModelTotals[] {
+  const deduped = dedupeBySessionId(entries)
   const byModel = new Map<string, ModelTotals>()
-  for (const entry of entries) {
+  for (const entry of deduped) {
     for (const [model, usage] of Object.entries(entry.modelUsage)) {
       let bucket = byModel.get(model)
       if (!bucket) {

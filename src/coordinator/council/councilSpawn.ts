@@ -422,18 +422,21 @@ async function invokeAgentTool(
     )
   }
 
-  // Concatenate text blocks; the result content is an array (the agent may
-  // emit multiple text segments, e.g. when teammate handoff warnings get
-  // prepended).
-  const text = (result.data.content ?? [])
-    .filter(c => c?.type === 'text' && typeof c.text === 'string')
-    .map(c => c.text)
-    .join('\n')
-    .trim()
+  // Extract text from the agent's final content. Source candidates in order
+  // of preference — the AgentTool result shape isn't single-canonical across
+  // every code path (sub-agent vs teammate vs forked-agent flows differ
+  // slightly), so we look at a few places. If none work, we synthesize a
+  // brief summary from tool_use blocks so the orchestrator can keep going
+  // rather than aborting the whole council on a quiet "no text" return.
+  const text = extractResultText(result.data) || synthesizeToolUseSummary(result.data)
 
   if (!text) {
+    // Genuinely empty — include a redacted snapshot of the result shape so
+    // the next failure points at the real issue instead of a vague string.
+    const shape = describeResultShape(result.data)
     throw new Error(
-      `AgentTool spawn for ${args.subagent_type} returned no text — check the agent definition and routing.`,
+      `AgentTool spawn for ${args.subagent_type} returned no text and no tool use to summarize. ` +
+        `Result shape: ${shape}. Most likely the agent emitted only tool_uses and the AgentTool's text-fallback logic didn't surface earlier text content — paste this whole error for triage.`,
     )
   }
 
@@ -445,6 +448,111 @@ async function invokeAgentTool(
   const costUsd = 0
 
   return { text, inputTokens, outputTokens, costUsd }
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// AgentTool result parsing — robust to a few shape variations
+// ──────────────────────────────────────────────────────────────────────
+
+interface AgentToolResultData {
+  content?: Array<{ type?: string; text?: string; name?: string; input?: unknown }>
+  text?: string
+  summary?: string
+  message?: { content?: unknown }
+  status?: string
+  totalToolUseCount?: number
+  usage?: { input_tokens?: number; output_tokens?: number }
+}
+
+/**
+ * Try to extract a string of the agent's final answer text from the result.
+ * The AgentTool's result shape isn't single-canonical (teammate, sub-agent,
+ * forked-agent paths differ); look at multiple places.
+ */
+export function extractResultText(data: AgentToolResultData): string {
+  // 1. content array of {type, text} blocks (most common)
+  if (Array.isArray(data.content)) {
+    const text = data.content
+      .filter(c => c?.type === 'text' && typeof c.text === 'string')
+      .map(c => c.text!)
+      .join('\n')
+      .trim()
+    if (text) return text
+  }
+
+  // 2. flat text field (some sub-agent paths)
+  if (typeof data.text === 'string' && data.text.trim()) {
+    return data.text.trim()
+  }
+
+  // 3. summary field (alternate)
+  if (typeof data.summary === 'string' && data.summary.trim()) {
+    return data.summary.trim()
+  }
+
+  // 4. nested message.content (when AgentTool returns a wrapped message)
+  if (data.message?.content) {
+    const inner = data.message.content
+    if (typeof inner === 'string' && inner.trim()) return inner.trim()
+    if (Array.isArray(inner)) {
+      const text = (inner as Array<{ type?: string; text?: string }>)
+        .filter(c => c?.type === 'text' && typeof c.text === 'string')
+        .map(c => c.text!)
+        .join('\n')
+        .trim()
+      if (text) return text
+    }
+  }
+
+  return ''
+}
+
+/**
+ * If the agent finished with no final text (only tool_uses), synthesize a
+ * brief summary so the orchestrator can keep going with a degraded
+ * proposal rather than aborting the whole council. Mentions the tools
+ * the agent called and that no final answer was produced — useful
+ * signal for the synthesizer which can weigh this member's input lower.
+ */
+export function synthesizeToolUseSummary(data: AgentToolResultData): string {
+  if (!Array.isArray(data.content)) return ''
+
+  const tools = data.content
+    .filter(c => c?.type === 'tool_use' && typeof c.name === 'string')
+    .map(c => c.name!)
+
+  if (tools.length === 0) return ''
+
+  const uniqueTools = Array.from(new Set(tools))
+  return (
+    `## Reasoning\nAgent exited after ${tools.length} tool call(s) (${uniqueTools.join(', ')}) without producing a final proposal text. ` +
+    `Treat this voice as low-confidence for the synthesis pass.\n\n` +
+    `## Proposal\nNo concrete proposal produced — defer to the other council members.\n\n` +
+    `## Risks\nNon-finalising agent run — may indicate an infrastructure issue (maxTurns, tool-loop, or model alignment failure).`
+  )
+}
+
+/**
+ * Compact description of a result object for diagnostic error messages —
+ * shows which fields are present and their types/sizes without leaking
+ * full payloads.
+ */
+export function describeResultShape(data: AgentToolResultData): string {
+  const parts: string[] = []
+  if (data.status) parts.push(`status="${data.status}"`)
+  if (Array.isArray(data.content)) {
+    const blockTypes = data.content.map(c => c?.type ?? 'unknown')
+    parts.push(`content=[${blockTypes.join(', ')}]`)
+  } else if ('content' in data) {
+    parts.push(`content=<${typeof data.content}>`)
+  }
+  if (typeof data.text === 'string') parts.push(`text.len=${data.text.length}`)
+  if (typeof data.summary === 'string') parts.push(`summary.len=${data.summary.length}`)
+  if (typeof data.totalToolUseCount === 'number') {
+    parts.push(`totalToolUseCount=${data.totalToolUseCount}`)
+  }
+  if (data.usage) parts.push(`usage.input=${data.usage.input_tokens ?? 0},output=${data.usage.output_tokens ?? 0}`)
+  return parts.length ? `{ ${parts.join(', ')} }` : '<empty>'
 }
 
 // ──────────────────────────────────────────────────────────────────────

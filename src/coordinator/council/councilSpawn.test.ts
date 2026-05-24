@@ -2,8 +2,11 @@ import { describe, expect, test } from 'bun:test'
 import {
   buildExecutorPrompt,
   buildRevisionPrompt,
+  describeResultShape,
   ensureMainLoopModel,
+  extractResultText,
   parseVerdict,
+  synthesizeToolUseSummary,
 } from './councilSpawn.js'
 import type { Review, SynthesizedPlan } from './councilOrchestrator.js'
 import type { ToolUseContext } from '../../Tool.js'
@@ -61,6 +64,93 @@ describe('buildExecutorPrompt', () => {
     expect(out).toContain('add a /health endpoint')
     expect(out).toContain(plan.text)
     expect(out).toMatch(/summarize|summary/i)
+  })
+})
+
+describe('extractResultText', () => {
+  test('pulls text from content[] of {type, text} blocks', () => {
+    expect(
+      extractResultText({
+        content: [
+          { type: 'text', text: '## Reasoning\nlooks fine' },
+        ],
+      }),
+    ).toBe('## Reasoning\nlooks fine')
+  })
+
+  test('concatenates multiple text blocks with newlines', () => {
+    expect(
+      extractResultText({
+        content: [
+          { type: 'text', text: 'first' },
+          { type: 'tool_use', name: 'Read', input: {} },
+          { type: 'text', text: 'second' },
+        ],
+      }),
+    ).toBe('first\nsecond')
+  })
+
+  test('falls back to flat text field', () => {
+    expect(extractResultText({ text: 'flat answer' })).toBe('flat answer')
+  })
+
+  test('falls back to summary field', () => {
+    expect(extractResultText({ summary: 'summary answer' })).toBe(
+      'summary answer',
+    )
+  })
+
+  test('returns empty string when nothing is text-shaped', () => {
+    expect(
+      extractResultText({
+        content: [{ type: 'tool_use', name: 'Glob', input: {} }],
+      }),
+    ).toBe('')
+  })
+})
+
+describe('synthesizeToolUseSummary', () => {
+  test('produces a structured proposal when content has only tool_uses', () => {
+    const out = synthesizeToolUseSummary({
+      content: [
+        { type: 'tool_use', name: 'Glob', input: {} },
+        { type: 'tool_use', name: 'Read', input: {} },
+        { type: 'tool_use', name: 'Glob', input: {} },
+      ],
+    })
+    expect(out).toContain('## Reasoning')
+    expect(out).toContain('## Proposal')
+    expect(out).toContain('## Risks')
+    expect(out).toContain('3 tool call(s)') // counts include duplicates
+    expect(out).toContain('Glob, Read') // dedupes for naming
+  })
+
+  test('returns empty when there are no tool_uses', () => {
+    expect(synthesizeToolUseSummary({ content: [] })).toBe('')
+    expect(
+      synthesizeToolUseSummary({
+        content: [{ type: 'text', text: 'hi' }],
+      }),
+    ).toBe('')
+  })
+})
+
+describe('describeResultShape', () => {
+  test('summarises content block types', () => {
+    expect(
+      describeResultShape({
+        status: 'completed',
+        content: [
+          { type: 'text' },
+          { type: 'tool_use' },
+          { type: 'tool_use' },
+        ],
+      }),
+    ).toBe('{ status="completed", content=[text, tool_use, tool_use] }')
+  })
+
+  test('handles missing fields', () => {
+    expect(describeResultShape({})).toBe('<empty>')
   })
 })
 

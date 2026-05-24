@@ -3579,10 +3579,14 @@ export function REPL({
     // COUNCIL_LLM_COORDINATOR=1 escape hatch). When returning false the
     // normal handlePromptSubmit path runs as usual.
     //
-    // When intercepted, force-end the queryGuard so the loading spinner
-    // ("Meandering…") clears — handlePromptSubmit normally calls
-    // queryGuard.end() at the end of its work, but the deterministic
-    // path bypasses that. forceEnd is idempotent / safe when not active.
+    // When intercepted, both forceEnd() AND resetLoadingState() are
+    // required to clear the spinner. forceEnd() flips queryGuard idle
+    // (drops isQueryActive → false). resetLoadingState() clears the
+    // OTHER state that feeds showSpinner — specifically
+    // userInputOnProcessing (set above at the setUserInputOnProcessing
+    // call), isExternalLoading, streaming refs, and spinner messages.
+    // Without resetLoadingState the spinner sticks for the rest of the
+    // session because userInputOnProcessing is never cleared.
     {
       const { maybeInterceptCouncilPrompt } = await import(
         '../coordinator/council/maybeInterceptCouncilPrompt.js'
@@ -3594,6 +3598,7 @@ export function REPL({
       });
       if (intercepted) {
         queryGuard.forceEnd();
+        resetLoadingState();
         return;
       }
     }

@@ -2258,11 +2258,23 @@ async function* queryModel(
             // replacement ({ ...lastMsg.message, usage }) would disconnect
             // the queued reference; direct mutation ensures the transcript
             // captures the final values.
+            //
+            // Also mutate the usage OBJECT'S fields in place (Object.assign)
+            // rather than re-assigning `lastMsg.message.usage = usage`. This
+            // is the fix for the agent-panel "0 tokens" bug: AgentTool calls
+            // `normalizeMessages([message])` on already-yielded assistant
+            // messages and emits the resulting snapshots through onProgress
+            // (see AgentTool.tsx:1118). normalizeMessages shallow-spreads
+            // (`{ ...message.message }` at messages.ts:763), so the snapshot
+            // holds a REFERENCE to the same usage object. With re-assignment,
+            // the snapshot points at the stale message_start usage (zeros for
+            // non-Anthropic providers, input-only for Anthropic). With
+            // in-place mutation, the snapshot sees the final totals.
             stopReason = part.delta.stop_reason
 
             const lastMsg = newMessages.at(-1)
             if (lastMsg) {
-              lastMsg.message.usage = usage
+              Object.assign(lastMsg.message.usage, usage)
               lastMsg.message.stop_reason = stopReason
             }
 

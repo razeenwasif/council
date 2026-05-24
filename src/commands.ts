@@ -142,6 +142,7 @@ import fast from './commands/fast/index.js'
 import council from './commands/council/index.js'
 import handoff from './commands/handoff/index.js'
 import router from './commands/router/index.js'
+import spend from './commands/spend/index.js'
 import passes from './commands/passes/index.js'
 import privacySettings from './commands/privacy-settings/index.js'
 import provider from './commands/provider/index.js'
@@ -332,6 +333,7 @@ const COMMANDS = memoize((): Command[] => [
   router,
   session,
   skills,
+  spend,
   stats,
   status,
   statusline,

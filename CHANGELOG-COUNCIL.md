@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### `/spend` slash command + cross-session usage ledger
+
+Append-only per-session ledger at `~/.openclaude/usage.jsonl` so spend tracking survives across council sessions. New `/spend` command renders per-day and per-model breakdowns with an ASCII sparkline trend.
+
+- `src/utils/usageLedger.ts` — new module. `appendUsageLedger(entry)` writes a JSONL record (best-effort — errors land on stderr without throwing). `readUsageLedger()` parses + validates each line (skips malformed records so a partial mid-write doesn't kill the read). `aggregateByDay()` and `aggregateByModel()` produce the two views the command needs. 8 unit tests.
+- `src/cost-tracker.ts` — `saveCurrentSessionCosts` now also appends a ledger entry via the new `appendUsageLedgerForCurrentSession()` helper. Uses the same in-memory `getModelUsage()` data that already feeds the projectConfig save. Skips writes when no models have been used yet (clean ledger on fresh REPL boots).
+- `src/commands/spend/spend.ts` — new command, registered as `/spend` in `commands.ts`. Defaults to last 7 days; flags `--today`, `--7d`, `--30d`, `--all`, `--models`, `--where`. Renders a per-day table with cost / session count / top-model column, plus a sparkline trend line (`▁▂▃▄▅▆▇█` bands).
+- Named `/spend` because `/usage` and `/cost` are already taken (existing openclaude commands for plan-quota and current-session-cost respectively).
+
+Per-spawn (per-council-role) attribution intentionally not in scope: the orchestrator runs spawns concurrently, so before/after global cost snapshots can't disambiguate when multiple roles share a model. Per-model aggregation is what we have reliable data for and is what users actually want ("how much does each provider cost me" beats "how much did the Skeptic spend").
+
 ### Explicit `✓ Stage done` emits between solo stages
 
 Live test showed the user couldn't tell whether the council was still running or stuck after the executor finished — the executor's `tool_result` landed in the panel, then nothing for 5+ minutes while reviews ran. Added a clear stage-transition emit so the spinner is never silent for >a few seconds.

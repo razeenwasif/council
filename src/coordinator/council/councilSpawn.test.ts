@@ -3,6 +3,7 @@ import {
   buildExecutorPrompt,
   buildRevisionPrompt,
   describeResultShape,
+  ensureAbortController,
   ensureMainLoopModel,
   extractResultText,
   parseVerdict,
@@ -151,6 +152,48 @@ describe('describeResultShape', () => {
 
   test('handles missing fields', () => {
     expect(describeResultShape({})).toBe('<empty>')
+  })
+})
+
+describe('ensureAbortController', () => {
+  const baseCtxWithAbort = (ac?: AbortController): ToolUseContext =>
+    ({
+      abortController: ac,
+      options: { mainLoopModel: 'claude' },
+    }) as unknown as ToolUseContext
+
+  test('returns context unchanged when AbortController is present', () => {
+    const ac = new AbortController()
+    const ctx = baseCtxWithAbort(ac)
+    const out = ensureAbortController(ctx, new AbortController().signal)
+    expect(out).toBe(ctx)
+    expect(out.abortController).toBe(ac)
+  })
+
+  test('fills a new AbortController when missing', () => {
+    const ctx = baseCtxWithAbort(undefined)
+    const out = ensureAbortController(ctx, new AbortController().signal)
+    expect(out).not.toBe(ctx)
+    expect(out.abortController).toBeInstanceOf(AbortController)
+    expect(out.abortController.signal.aborted).toBe(false)
+  })
+
+  test('propagates parent abort to the new controller', () => {
+    const ctx = baseCtxWithAbort(undefined)
+    const parent = new AbortController()
+    const out = ensureAbortController(ctx, parent.signal)
+
+    expect(out.abortController.signal.aborted).toBe(false)
+    parent.abort()
+    expect(out.abortController.signal.aborted).toBe(true)
+  })
+
+  test('starts already-aborted if the parent was already aborted', () => {
+    const ctx = baseCtxWithAbort(undefined)
+    const parent = new AbortController()
+    parent.abort()
+    const out = ensureAbortController(ctx, parent.signal)
+    expect(out.abortController.signal.aborted).toBe(true)
   })
 })
 

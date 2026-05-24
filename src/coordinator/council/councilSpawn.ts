@@ -338,17 +338,20 @@ async function invokeAgentTool(
     args.canUseTool ??
     (async () => ({ behavior: 'allow' as const, updatedInput: undefined }))
 
-  // Patch the toolUseContext so options.mainLoopModel is always a string.
-  // First live failure stack trace showed AgentTool.call → getAgentModel →
-  // getBedrockRegionPrefix → extractModelIdFromArn doing
-  // `modelId.startsWith('arn:')` on an undefined `mainLoopModel`. The
-  // LLM-coordinator path doesn't hit this because openclaude's tool-use
-  // loop populates mainLoopModel before invoking the AgentTool. From a
-  // slash command / hook context, mainLoopModel may not be populated yet
-  // (it's the active session's main-loop model, set during normal LLM
-  // dispatch). Fill it from the user's saved model preference or a sane
-  // Anthropic default.
-  const patchedContext = ensureMainLoopModel(args.toolUseContext)
+  // Patch the toolUseContext for deterministic-path invocations.
+  // Each fix below was tracked down from a specific live-failure stack:
+  //   1. mainLoopModel — getAgentModel → getBedrockRegionPrefix →
+  //      extractModelIdFromArn does `modelId.startsWith('arn:')` on
+  //      undefined.
+  //   2. abortController — runAgent line 531 reads `toolUseContext.
+  //      abortController.signal` unconditionally for sync agents.
+  // The LLM-coordinator path supplies both naturally because openclaude's
+  // tool-use loop populates them before dispatch; from a slash-command
+  // hook context, neither may be set yet.
+  const patchedContext = ensureAbortController(
+    ensureMainLoopModel(args.toolUseContext),
+    args.signal,
+  )
 
   // AgentTool.call returns a Promise<{ data }> — a single terminal result,
   // not a stream. Race it against the abort signal so the orchestrator's
@@ -560,6 +563,38 @@ export function describeResultShape(data: AgentToolResultData): string {
 // ──────────────────────────────────────────────────────────────────────
 
 const FALLBACK_MAIN_LOOP_MODEL = 'claude-opus-4-7'
+
+/**
+ * Return a ToolUseContext with `abortController` guaranteed to be a
+ * non-null AbortController. `runAgent` reads `toolUseContext.abortController.
+ * signal` unconditionally for sync agents (runAgent.ts:531/538), so an
+ * undefined `abortController` field crashes the spawn before any agent
+ * work happens.
+ *
+ * If the context already has one, use it as-is. Otherwise, create a
+ * fresh AbortController linked to the orchestrator's per-member abort
+ * signal — so when the orchestrator's per-member timeout fires, the
+ * spawn's internal work aborts too.
+ */
+export function ensureAbortController(
+  ctx: ToolUseContext,
+  parentSignal: AbortSignal,
+): ToolUseContext {
+  if (ctx.abortController instanceof AbortController) return ctx
+
+  const ac = new AbortController()
+
+  // Propagate the orchestrator's per-member abort signal so timeouts
+  // reach the underlying agent. Use { once: true } so we don't leak
+  // listeners across many parallel spawns.
+  if (parentSignal.aborted) {
+    ac.abort()
+  } else {
+    parentSignal.addEventListener('abort', () => ac.abort(), { once: true })
+  }
+
+  return { ...ctx, abortController: ac }
+}
 
 /**
  * Return a ToolUseContext with `options.mainLoopModel` guaranteed to be a

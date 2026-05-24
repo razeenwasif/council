@@ -56,7 +56,7 @@ src/tools/AgentTool/built-in/council/
 ├── architectAgent.ts           ← claude-opus-4-7, structural lens
 ├── implementerAgent.ts         ← deepseek-v4, concrete-code lens
 ├── skepticAgent.ts             ← gemini-3.5-flash, risk lens
-├── criticAgent.ts              ← gpt-5.5, maintainability lens
+├── criticAgent.ts              ← gpt-4.1-mini, maintainability lens
 ├── synthesizerAgent.ts         ← gemini-3.5-flash, no tools, judge
 └── executorAgent.ts            ← claude-opus-4-7, full tools, the only writer
 
@@ -93,7 +93,7 @@ Two issues caught and fixed during first build:
 
 What the build can't tell you:
 
-1. **Model IDs** — `deepseek-v4`, `gemini-3.5-flash`, `gpt-5.5` are the literal strings the user specified. Compile-time the build doesn't validate them against the provider registry — that happens at runtime when an agent is spawned. If a model isn't registered, the agent will fall through to the global default (or error, depending on provider config). Verify by configuring providers via `/provider` and running an end-to-end test.
+1. **Model IDs** — `deepseek-v4`, `gemini-3.5-flash`, `gpt-4.1-mini` are the literal strings the user specified. Compile-time the build doesn't validate them against the provider registry — that happens at runtime when an agent is spawned. If a model isn't registered, the agent will fall through to the global default (or error, depending on provider config). Verify by configuring providers via `/provider` and running an end-to-end test.
 2. **End-to-end smoke** — never actually convened a council. Needs configured provider profiles for at least Anthropic, DeepSeek, Google, and OpenAI (or one gateway covering all). See "Recommended next steps" below.
 3. **Cosmetic branding** — startup banner, tagline, version label, and `bin/council` script have been rebranded to Council. Other strings (welcome notices, MCP server description, update messages) still say "OpenClaude" — none are blocking.
 

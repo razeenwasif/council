@@ -124,7 +124,7 @@ Use these literal model IDs in the parenthetical — this is the configured rout
 | Architect     | claude-opus-4-7          |
 | Implementer   | deepseek-chat            |
 | Skeptic       | gemini-3.5-flash         |
-| Critic        | gpt-5.5                  |
+| Critic        | gpt-4.1-mini             |
 | Synthesizer   | gemini-3.5-flash         |
 | Executor      | claude-opus-4-7          |
 

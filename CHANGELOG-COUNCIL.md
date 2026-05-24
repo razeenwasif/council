@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Critic model: gpt-5.5 → gpt-4.1-mini
+
+First successful council fan-out surfaced an OpenAI API error: `Function tools with reasoning_effort are not supported for gpt-5.5 in /v1/chat/completions. Please use /v1/responses instead.` The `agentModels` schema only exposes `base_url` + `api_key` (no transport / endpoint-format switch), so the routed call always goes to `/v1/chat/completions`. Swapped the critic to `gpt-4.1-mini` — newer-gen, function-tool-friendly on chat completions, and ~the same price tier. Updated `criticAgent.ts:model`, the role table in `prompts.ts`, `~/.openclaude/settings.json` agentModels + agentRouting, and the model references in `COUNCIL.md` / `HANDOFF.md`.
+
 ### Fix: agentRouting was in the wrong config file
 
 `agentRouting` and `agentModels` were being written to `~/.openclaude.json` (the user-state file), but the `SettingsJson` schema reads them from `~/.openclaude/settings.json`. `resolveAgentProvider` saw `settings.agentRouting === undefined`, returned null, and every council sub-agent fell back to the global Anthropic OAuth provider — explaining why `/stats` showed 100% Opus 4.7 even though DeepSeek / Gemini / OpenAI were configured.

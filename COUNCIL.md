@@ -58,7 +58,7 @@ You'll see four members spawn in parallel, then synthesis, then execution, then 
 | Architect | `claude-opus-4-7` | structure, boundaries, design | Read-only (Read, Grep, Glob) |
 | Implementer | `deepseek-v4` | concrete code, minimal diff | Read-only |
 | Skeptic | `gemini-3.5-flash` | risks, edge cases, what could break | Read-only |
-| Critic | `gpt-5.5` | maintainability, six-months-from-now | Read-only |
+| Critic | `gpt-4.1-mini` | maintainability, six-months-from-now | Read-only |
 | Synthesizer | `gemini-3.5-flash` | unify the four proposals | None |
 | Executor | `claude-opus-4-7` | execute the plan, write the diff | Full (Bash, Edit, Write) |
 
@@ -70,7 +70,7 @@ Override any binding per-role in `~/.openclaude/settings.json`:
     "architect":   "claude-opus-4-7",
     "implementer": "deepseek-v4",
     "skeptic":     "gemini-3.5-flash",
-    "critic":      "gpt-5.5",
+    "critic":      "gpt-4.1-mini",
     "synthesizer": "gemini-3.5-flash",
     "executor":    "claude-opus-4-7"
   }

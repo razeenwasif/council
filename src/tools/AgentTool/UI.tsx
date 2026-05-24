@@ -674,7 +674,7 @@ export function renderGroupedAgentToolUse(toolUses: Array<{
     result
   }) => {
     const stats = calculateAgentStats(progressMessages);
-    const lastToolInfo = extractLastToolInfo(progressMessages, tools);
+    const lastActivity = extractLastAgentActivity(progressMessages, tools);
     const parsedInput = inputSchema().safeParse(param.input);
 
     // teammate_spawned is not part of the exported Output type (cast through unknown
@@ -720,7 +720,7 @@ export function renderGroupedAgentToolUse(toolUses: Array<{
       isAsync,
       color,
       descriptionColor,
-      lastToolInfo,
+      lastActivity,
       taskDescription,
       name
     };
@@ -754,7 +754,7 @@ export function renderGroupedAgentToolUse(toolUses: Array<{
         </Text>
         {!allAsync && <CtrlOToExpand />}
       </Box>
-      {agentStats.map((stat, index) => <AgentProgressLine key={stat.id} agentType={stat.agentType} description={stat.description} descriptionColor={stat.descriptionColor} taskDescription={stat.taskDescription} toolUseCount={stat.toolUseCount} tokens={stat.tokens} color={stat.color} isLast={index === agentStats.length - 1} isResolved={stat.isResolved} isError={stat.isError} isAsync={stat.isAsync} shouldAnimate={shouldAnimate} lastToolInfo={stat.lastToolInfo} hideType={allSameType} name={stat.name} />)}
+      {agentStats.map((stat, index) => <AgentProgressLine key={stat.id} agentType={stat.agentType} description={stat.description} descriptionColor={stat.descriptionColor} taskDescription={stat.taskDescription} toolUseCount={stat.toolUseCount} tokens={stat.tokens} color={stat.color} isLast={index === agentStats.length - 1} isResolved={stat.isResolved} isError={stat.isError} isAsync={stat.isAsync} shouldAnimate={shouldAnimate} lastActivity={stat.lastActivity} hideType={allSameType} name={stat.name} />)}
     </Box>;
 }
 export function userFacingName(input: Partial<{
@@ -868,4 +868,64 @@ export function extractLastToolInfo(progressMessages: ProgressMessage<Progress>[
 }
 function isCustomSubagentType(subagentType: string | undefined): subagentType is string {
   return !!subagentType && subagentType !== GENERAL_PURPOSE_AGENT.agentType && subagentType !== 'worker';
+}
+
+/**
+ * Last meaningful activity from a sub-agent, for display on the agent progress
+ * line. Walks progressMessages backwards: if the most recent content block is
+ * assistant text (the model is reasoning out loud / preparing a response),
+ * surface the last sentence-or-clause as 'thinking'. Otherwise fall back to
+ * the existing tool-info extractor.
+ */
+export type AgentActivity =
+  | { kind: 'thinking'; text: string }
+  | { kind: 'tool'; text: string }
+
+export function extractLastAgentActivity(
+  progressMessages: ProgressMessage<Progress>[],
+  tools: Tools,
+): AgentActivity | null {
+  for (let i = progressMessages.length - 1; i >= 0; i--) {
+    const pm = progressMessages[i]!
+    if (!hasProgressMessage(pm.data)) continue
+    const msg = pm.data.message
+
+    if (msg.type === 'assistant') {
+      // Walk this message's content blocks backwards — first meaningful one wins.
+      const content = msg.message.content
+      for (let j = content.length - 1; j >= 0; j--) {
+        const block = content[j]!
+        if (block.type === 'text' && block.text.trim()) {
+          return { kind: 'thinking', text: summarizeAssistantText(block.text) }
+        }
+        if (block.type === 'tool_use') {
+          // Most recent activity is a tool call — fall through to tool info.
+          const toolInfo = extractLastToolInfo(progressMessages, tools)
+          return toolInfo ? { kind: 'tool', text: toolInfo } : null
+        }
+      }
+    } else if (msg.type === 'user') {
+      // Tool result just arrived.
+      const toolInfo = extractLastToolInfo(progressMessages, tools)
+      return toolInfo ? { kind: 'tool', text: toolInfo } : null
+    }
+  }
+  return null
+}
+
+const ACTIVITY_PREVIEW_MAX_CHARS = 80
+
+function summarizeAssistantText(text: string): string {
+  // Collapse whitespace to a single line.
+  const normalized = text.replace(/\s+/g, ' ').trim()
+  if (!normalized) return ''
+  // Pull the last sentence-ish chunk. Fallback to the whole string if no
+  // sentence boundary is present (early-stream tokens, no punctuation yet).
+  const segments = normalized.split(/(?<=[.!?])\s+/)
+  let last = segments[segments.length - 1] || normalized
+  if (last.length > ACTIVITY_PREVIEW_MAX_CHARS) {
+    // Show the tail — that's the most "current" part of the thought.
+    last = '…' + last.slice(-(ACTIVITY_PREVIEW_MAX_CHARS - 1))
+  }
+  return last
 }

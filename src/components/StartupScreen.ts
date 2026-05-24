@@ -1,5 +1,5 @@
 /**
- * OpenClaude startup screen — filled-block text logo with sunset gradient.
+ * Council startup screen — filled-block text logo with sunset gradient.
  * Called once at CLI startup before the Ink UI renders.
  *
  * Addresses: https://github.com/Gitlawb/openclaude/issues/55
@@ -54,14 +54,35 @@ export function paintLine(text: string, stops: readonly RGB[], lineT: number): s
 
 // ─── Filled Block Text Logo ───────────────────────────────────────────────────
 
-const LOGO_COUNCIL = [
-  `  \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557   \u2588\u2588\u2557 \u2588\u2588\u2557   \u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557      `,
-  `  \u2588\u2588\u2554\u2550\u2550\u2550\u2550\u2550\u255d \u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2551 \u2588\u2588\u2551   \u2588\u2588\u2551 \u2588\u2588\u2588\u2557  \u2588\u2588\u2551 \u2588\u2588\u2554\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u2550\u2588\u2588\u2554\u2550\u2550\u255d \u2588\u2588\u2551      `,
-  `  \u2588\u2588\u2551       \u2588\u2588\u2551   \u2588\u2588\u2551 \u2588\u2588\u2551   \u2588\u2588\u2551 \u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2551 \u2588\u2588\u2551          \u2588\u2588\u2551    \u2588\u2588\u2551      `,
-  `  \u2588\u2588\u2551       \u2588\u2588\u2551   \u2588\u2588\u2551 \u2588\u2588\u2551   \u2588\u2588\u2551 \u2588\u2588\u2554\u2588\u2588\u2557\u2588\u2588\u2551 \u2588\u2588\u2551          \u2588\u2588\u2551    \u2588\u2588\u2551      `,
-  `  \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551 \u255a\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d \u2588\u2588\u2551 \u2588\u2588\u2588\u2588\u2551 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557`,
-  `  \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d  \u255a\u2550\u2550\u2550\u2550\u2550\u255d  \u255a\u2550\u255d  \u255a\u2550\u2550\u255d \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d`,
+// Logo = [mark] [gap] [wordmark]. The mark depicts four voices (corner \u25cf)
+// converging into one center diamond (\u25c6) \u2014 the council story in 5\u00d75. The
+// wordmark spells COUNCIL in plain pixel-block letters with no box-drawing
+// corner-detail, keeping it visually distinct from the upstream OpenClaude /
+// Claude Code banner. Both pieces are gradient-painted together.
+
+const LOGO_MARK = [
+  `\u25cf   \u25cf`,
+  ` \u2572 \u2571 `,
+  `  \u25c6  `,
+  ` \u2571 \u2572 `,
+  `\u25cf   \u25cf`,
 ]
+
+// Double-stroke pixel-block letters: 6 cols per letter, 5 rows tall, with
+// 2-wide vertical members for a bolder feel. Single-space gap between letters.
+const LOGO_WORDMARK = [
+  `\u2588\u2588\u2588\u2588\u2588\u2588 \u2588\u2588\u2588\u2588\u2588\u2588 \u2588\u2588  \u2588\u2588 \u2588\u2588  \u2588\u2588 \u2588\u2588\u2588\u2588\u2588\u2588 \u2588\u2588\u2588\u2588\u2588\u2588 \u2588\u2588    `,
+  `\u2588\u2588     \u2588\u2588  \u2588\u2588 \u2588\u2588  \u2588\u2588 \u2588\u2588\u2588 \u2588\u2588 \u2588\u2588       \u2588\u2588   \u2588\u2588    `,
+  `\u2588\u2588     \u2588\u2588  \u2588\u2588 \u2588\u2588  \u2588\u2588 \u2588\u2588\u2588\u2588\u2588\u2588 \u2588\u2588       \u2588\u2588   \u2588\u2588    `,
+  `\u2588\u2588     \u2588\u2588  \u2588\u2588 \u2588\u2588  \u2588\u2588 \u2588\u2588 \u2588\u2588\u2588 \u2588\u2588       \u2588\u2588   \u2588\u2588    `,
+  `\u2588\u2588\u2588\u2588\u2588\u2588 \u2588\u2588\u2588\u2588\u2588\u2588 \u2588\u2588\u2588\u2588\u2588\u2588 \u2588\u2588  \u2588\u2588 \u2588\u2588\u2588\u2588\u2588\u2588 \u2588\u2588\u2588\u2588\u2588\u2588 \u2588\u2588\u2588\u2588\u2588\u2588`,
+]
+
+const LOGO_GAP = '   ' // 3 spaces between mark and wordmark
+
+const LOGO_COUNCIL = LOGO_MARK.map(
+  (mark, i) => `  ${mark}${LOGO_GAP}${LOGO_WORDMARK[i]}`,
+)
 
 // ─── Provider detection ───────────────────────────────────────────────────────
 
@@ -157,10 +178,8 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
 
 // ─── Box drawing ──────────────────────────────────────────────────────────────
 
-function boxRow(content: string, width: number, rawLen: number, border: RGB): string {
-  const pad = Math.max(0, width - 2 - rawLen)
-  return `${ansiRgb(...border)}\u2502${RESET}${content}${' '.repeat(pad)}${ansiRgb(...border)}\u2502${RESET}`
-}
+// Box-drawing helper (boxRow) was removed in the layout rewrite \u2014 the new
+// banner uses inline labels instead of a bordered panel.
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
@@ -172,60 +191,50 @@ export function printStartupScreen(modelOverride?: string): void {
   const ACCENT = palette.accent
   const CREAM = palette.cream
   const DIMCOL = palette.dim
-  const BORDER = palette.border
   const GRAD = palette.gradient
 
   const p = detectProvider(modelOverride)
-  const W = 62
   const out: string[] = []
 
   out.push('')
 
-  // Gradient logo
-  const allLogo = LOGO_COUNCIL
-  const total = allLogo.length
+  // Gradient logo \u2014 paints diagonally top-left \u2192 bottom-right across the rows.
+  const total = LOGO_COUNCIL.length
   for (let i = 0; i < total; i++) {
     const t = total > 1 ? i / (total - 1) : 0
-    if (allLogo[i] === '') {
-      out.push('')
-    } else {
-      out.push(paintLine(allLogo[i], GRAD, t))
-    }
+    out.push(paintLine(LOGO_COUNCIL[i]!, GRAD, t))
   }
 
   out.push('')
 
-  // Tagline
+  // Tagline \u2014 \u2726 on either side in accent, body in cream.
   out.push(`  ${ansiRgb(...ACCENT)}\u2726${RESET} ${ansiRgb(...CREAM)}Four voices. One plan. Real code.${RESET} ${ansiRgb(...ACCENT)}\u2726${RESET}`)
   out.push('')
 
-  // Provider info box
-  out.push(`${ansiRgb(...BORDER)}\u2554${'\u2550'.repeat(W - 2)}\u2557${RESET}`)
-
-  const lbl = (k: string, v: string, c: RGB = CREAM): [string, number] => {
+  // Inline key/value labels \u2014 no box, no border. Label dim, value cream
+  // (provider gets the accent color for emphasis; green-ish when local).
+  const lbl = (k: string, v: string, c: RGB = CREAM): string => {
     const padK = k.padEnd(9)
-    return [` ${DIM}${ansiRgb(...DIMCOL)}${padK}${RESET} ${ansiRgb(...c)}${v}${RESET}`, ` ${padK} ${v}`.length]
+    return `  ${DIM}${ansiRgb(...DIMCOL)}${padK}${RESET}  ${ansiRgb(...c)}${v}${RESET}`
   }
 
-  const provC: RGB = p.isLocal ? [130, 175, 130] : ACCENT
-  let [r, l] = lbl('Provider', p.name, provC)
-  out.push(boxRow(r, W, l, BORDER))
-  ;[r, l] = lbl('Model', p.model)
-  out.push(boxRow(r, W, l, BORDER))
-  const ep = p.baseUrl.length > 38 ? p.baseUrl.slice(0, 35) + '...' : p.baseUrl
-  ;[r, l] = lbl('Endpoint', ep)
-  out.push(boxRow(r, W, l, BORDER))
+  const provC: RGB = p.isLocal ? [140, 200, 160] : ACCENT
+  out.push(lbl('provider', p.name, provC))
+  out.push(lbl('model', p.model))
+  const ep = p.baseUrl.length > 50 ? p.baseUrl.slice(0, 47) + '...' : p.baseUrl
+  out.push(lbl('endpoint', ep))
+  out.push('')
 
-  out.push(`${ansiRgb(...BORDER)}\u2560${'\u2550'.repeat(W - 2)}\u2563${RESET}`)
-
-  const sC: RGB = p.isLocal ? [130, 175, 130] : ACCENT
+  // Status line \u2014 \u25cf in provider color, "ready" then a hint to /help.
+  const sC: RGB = p.isLocal ? [140, 200, 160] : ACCENT
   const sL = p.isLocal ? 'local' : 'cloud'
-  const sRow = ` ${ansiRgb(...sC)}\u25cf${RESET} ${DIM}${ansiRgb(...DIMCOL)}${sL}${RESET}    ${DIM}${ansiRgb(...DIMCOL)}Ready \u2014 type ${RESET}${ansiRgb(...ACCENT)}/help${RESET}${DIM}${ansiRgb(...DIMCOL)} to begin${RESET}`
-  const sLen = ` \u25cf ${sL}    Ready \u2014 type /help to begin`.length
-  out.push(boxRow(sRow, W, sLen, BORDER))
+  out.push(
+    `  ${ansiRgb(...sC)}\u25cf${RESET} ${ansiRgb(...CREAM)}ready${RESET}  ${DIM}${ansiRgb(...DIMCOL)}${sL}${RESET}  ${DIM}${ansiRgb(...DIMCOL)}\u00b7  type ${RESET}${ansiRgb(...ACCENT)}/help${RESET}${DIM}${ansiRgb(...DIMCOL)} to begin${RESET}`
+  )
+  out.push('')
 
-  out.push(`${ansiRgb(...BORDER)}\u255a${'\u2550'.repeat(W - 2)}\u255d${RESET}`)
-  out.push(`  ${DIM}${ansiRgb(...DIMCOL)}council ${RESET}${ansiRgb(...ACCENT)}v${MACRO.DISPLAY_VERSION ?? MACRO.VERSION}${RESET}`)
+  // Version footer
+  out.push(`  ${DIM}${ansiRgb(...DIMCOL)}council${RESET}  ${ansiRgb(...ACCENT)}v${MACRO.DISPLAY_VERSION ?? MACRO.VERSION}${RESET}`)
   out.push('')
 
   process.stdout.write(out.join('\n') + '\n')

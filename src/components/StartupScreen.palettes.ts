@@ -12,13 +12,27 @@ export type LogoPalette = {
   accent: RGB
   /** Soft body text color (tagline value, label values). */
   cream: RGB
-  /** Dim color for label names and the openclaude prefix. */
+  /** Dim color for label names and the council prefix. */
   dim: RGB
   /** Box-drawing border color. */
   border: RGB
 }
 
 export const LOGO_PALETTES = {
+  aurora: {
+    gradient: [
+      [120, 80, 210],   // deep violet
+      [155, 90, 220],   // violet
+      [190, 100, 215],  // pink-purple
+      [220, 110, 200],  // magenta
+      [240, 130, 180],  // hot pink
+      [248, 155, 175],  // warm pink
+    ],
+    accent: [230, 130, 220],
+    cream: [230, 215, 240],
+    dim: [135, 110, 155],
+    border: [110, 85, 130],
+  },
   sunset: {
     gradient: [
       [255, 180, 100],
@@ -81,10 +95,11 @@ export type LogoPaletteName = keyof typeof LOGO_PALETTES
 
 export const LOGO_PALETTE_NAMES = Object.keys(LOGO_PALETTES) as LogoPaletteName[]
 
-export const DEFAULT_LOGO_PALETTE: LogoPaletteName = 'sunset'
+export const DEFAULT_LOGO_PALETTE: LogoPaletteName = 'aurora'
 
 export const LOGO_PALETTE_LABELS: Record<LogoPaletteName, string> = {
-  sunset: 'Sunset (default)',
+  aurora: 'Aurora (default)',
+  sunset: 'Sunset',
   forest: 'Forest green',
   ocean: 'Ocean blue',
   monochrome: 'Monochrome',

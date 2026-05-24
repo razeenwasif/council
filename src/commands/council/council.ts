@@ -1,37 +1,53 @@
 import type { LocalCommandCall } from '../../types/command.js'
 import { isCouncilMode } from '../../coordinator/council/councilMode.js'
 
-const HELP = `Usage: /council [on|off|status]
+const HELP = `Usage: /council [status|on|off]
 
-  on      Enable council mode for subsequent prompts. Sets
-          CLAUDE_CODE_COUNCIL_MODE=1 and CLAUDE_CODE_COORDINATOR_MODE=1.
-  off     Disable council mode. Reverts to standard (single-agent) flow.
-  status  Report whether council mode is currently on or off.`
+  status  Report whether council mode is currently on or off.
+  on      No-op in v1 — council mode must be active at session start because
+          the agent registry is memoized at first read. The \`council\`
+          binary sets the env vars before launch, so council mode is on by
+          default. To run without council, set COUNCIL_OFF=1 and relaunch.
+  off     Same constraint as \`on\` — toggling at runtime won't unregister
+          the council agents. Relaunch with COUNCIL_OFF=1 council to run
+          a non-council session.
+
+The \`on\`/\`off\` no-op constraint is tracked in BACKLOG.md (P1) — proper
+runtime toggling requires invalidating the agent definitions cache and
+re-applying the coordinator system prompt mid-session.`
+
+const RESTART_NOTE =
+  '\n\nNote: agent registration happens once at session start (memoized). To change council state, relaunch:\n' +
+  '  - council                  → council mode on (default)\n' +
+  '  - COUNCIL_OFF=1 council    → council mode off'
 
 export const call: LocalCommandCall = async args => {
   const sub = args.trim().toLowerCase() || 'status'
 
   switch (sub) {
     case 'on':
-      // Council rides on top of coordinator mode — flip both. Reading
-      // these env vars is what isCouncilMode() and isCoordinatorMode()
-      // check, and the agent registry + system prompt branches off them.
+      // Flip the env vars anyway so anything reading them mid-session (e.g.
+      // a future call to isCouncilMode()) sees the new value. Does not
+      // re-register agents — surface that loud and clear.
       process.env.CLAUDE_CODE_COUNCIL_MODE = '1'
       process.env.CLAUDE_CODE_COORDINATOR_MODE = '1'
       return {
         type: 'text',
         value:
-          'Council mode ON. Next prompt will convene architect, implementer, skeptic, critic → synthesizer → executor → review.',
+          (isCouncilMode()
+            ? 'Council mode: ON (env vars set). '
+            : 'Council mode env vars set, but ') +
+          'agent registry was already built at session start — flipping at runtime will not re-register the council agents.' +
+          RESTART_NOTE,
       }
 
     case 'off':
       delete process.env.CLAUDE_CODE_COUNCIL_MODE
-      // Leave CLAUDE_CODE_COORDINATOR_MODE as-is — the user may have
-      // enabled coordinator mode independently. /council toggles only the
-      // council layer.
       return {
         type: 'text',
-        value: 'Council mode OFF. Reverted to standard single-agent flow.',
+        value:
+          'Council mode env var cleared, but agents registered at startup will remain registered for this session.' +
+          RESTART_NOTE,
       }
 
     case 'status':

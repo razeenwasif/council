@@ -34,7 +34,7 @@ export default defineVendor({
       XAI_CREDENTIAL_SOURCE: ['oauth'],
     },
     missingCredentialMessage:
-      'XAI_API_KEY is required, or sign in with `openclaude auth xai login` (browser OAuth) or `openclaude auth xai device` (remote hosts).',
+      'XAI_API_KEY is required, or sign in with `council auth xai login` (browser OAuth) or `council auth xai device` (remote hosts).',
   },
   catalog: {
     source: 'static',

@@ -1,5 +1,36 @@
 # Council Changelog
 
+## [Unreleased]
+
+### Banner redesign — logo mark, thicker wordmark, aurora palette, inline labels
+
+Full visual reset of the startup banner to remove the OpenClaude / Claude Code resemblance.
+
+- **Logo mark** (`src/components/StartupScreen.ts`): new 5×5 mark sitting left of the wordmark — four corner dots (`●`) converging via diagonals (`╲ ╱`) onto a center diamond (`◆`). Visualizes the council story: four voices → one synthesis. Gradient-painted along with the wordmark.
+- **Wordmark** (`src/components/StartupScreen.ts`): `LOGO_WORDMARK` is a pixel-block COUNCIL with 2-wide vertical strokes (6 cols per letter, 5 rows tall) — no corner-detail or `╔ ╗ ╚ ╝` box-drawing chrome. Thicker than the initial single-stroke draft for more visual weight.
+- **Layout** (`src/components/StartupScreen.ts`): boxed provider panel dropped — `╔══ ║ ╠══ ║ ╚══` borders replaced with inline `label  value` lines and a single status line. `boxRow` helper removed.
+- **Palette** (`src/components/StartupScreen.palettes.ts`): new `aurora` palette — purple → pink diagonal gradient, made the new default. The previous `sunset` palette is preserved as a switchable option via `/logo`. Other palettes (forest, ocean, monochrome) unchanged.
+
+### Vendor badges in the agent panel
+
+Each council role's row now leads with a colored glyph identifying the underlying vendor, and the live-thinking line's `›` marker is tinted to match.
+
+- `src/coordinator/council/vendorBadge.ts` (new) — `getCouncilVendorBadge(agentType)` returns `{ glyph, color, label }` for the six council roles, `null` otherwise (non-council sub-agents render unchanged).
+- Badges: Anthropic `❋` yellow (architect, executor), Google `✦` blue (skeptic, synthesizer), DeepSeek `◆` cyan (implementer), OpenAI `◯` green (critic). Glyphs are basic Unicode — no Nerd Font required.
+- `src/components/AgentProgressLine.tsx` — renders the badge between the tree char and the role name on the header line, and colors the leading `›` of the thinking line in the same vendor color (text body stays dim+italic).
+
+### Live "agent thinking" preview in the agent panel
+
+The two-line agent-progress row in the coordinator-mode agent panel now shows the running agent's current reasoning, not just its last tool call.
+
+- `src/tools/AgentTool/UI.tsx` — new `extractLastAgentActivity()` walks `progressMessages` backwards and returns either `{ kind: 'thinking', text }` (last sentence-or-clause from the most recent assistant text block, truncated to ~80 chars with `…` head if longer) or `{ kind: 'tool', text }` (falls back to the existing `extractLastToolInfo` extractor). Whichever kind of activity is most recent wins.
+- `src/components/AgentProgressLine.tsx` — `lastToolInfo: string | null` prop replaced with `lastActivity: AgentActivity | null`. The status line now renders thinking as `› <text>` (italic, dim) and tool info as before.
+- Component was previously emitted by the React Compiler with manually-tracked cache slots; rewritten as plain React because the slot count is fragile when extending the conditional logic. Memoization isn't load-bearing here — the component renders once per agent per progress update.
+
+Removed the matching BACKLOG entry (was P2 under UX polish).
+
+
+
 Changes specific to the Council fork of OpenClaude. For upstream OpenClaude changes see [CHANGELOG.md](CHANGELOG.md).
 
 ## [0.1.0] — 2026-05-24 — v1 scaffold

@@ -21,7 +21,7 @@ export const CRITIC_AGENT: BuiltInAgentDefinition = {
   ],
   source: 'built-in',
   baseDir: 'built-in',
-  model: 'gpt-5-1-mini',
+  model: 'gpt-5.5',
   color: 'purple',
   omitClaudeMd: false,
   getSystemPrompt: () => CRITIC_PROMPT,

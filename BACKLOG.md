@@ -23,6 +23,10 @@ Things deliberately not built in v1, grouped by priority. Each item names what's
 **Why deferred**: provider client API surface varies; stubbed to fall back to heuristic.
 **Work**: in `src/coordinator/council/router/llm.ts`, replace `classify()` with a real call to `gemini-3.5-flash` via the provider resolver at `src/services/api/agentRouting.ts`. Keep the heuristic fallback for transient API errors.
 
+### Make `/council on|off` actually toggle mid-session
+**Why deferred**: agent registration runs through `getAgentDefinitionsWithOverrides` in `src/tools/AgentTool/loadAgentsDir.ts:295`, which is `memoize`d at session start. The coordinator system prompt is similarly resolved once. Flipping `CLAUDE_CODE_COUNCIL_MODE` from the slash command updates `process.env` but neither the agent registry nor the prompt re-reads it. v1 works around this by activating council mode in `bin/council` (env vars set before bundle load) and surfacing the constraint in the `/council` help text.
+**Work**: (1) export and call `clearAgentDefinitionsCache()` (already exists at `loadAgentsDir.ts:385`) from the `/council on/off` handler. (2) Force a re-resolve of the coordinator system prompt — likely a new helper in `src/coordinator/coordinatorMode.ts` that other code can call to invalidate any cached prompt string. (3) After both invalidations, the next user prompt should see the new registry + prompt. Risk: in-flight conversations carry context that assumed the previous mode; consider whether toggling mid-thread is even semantically meaningful, or whether the slash command should hard-require a session boundary.
+
 ### Per-query cost ceiling
 **Why deferred**: openclaude has `cost-tracker.ts` infra but enforcement at the council-query boundary needs an integration pass.
 **Work**: extend the orchestrator (once deterministic) to track running cost across the pipeline and abort with a structured error if `costCeilingUsd` is exceeded. Default ceiling: $3 per query. Surface as `/council ceiling <usd>` subcommand.
@@ -62,6 +66,19 @@ Things deliberately not built in v1, grouped by priority. Each item names what's
 ### Remove unrelated slash commands
 **Examples**: `/install-github-app`, `/install-slack-app`, `/onboard-github`, `/chrome`, `/desktop`, `/mobile`, `/benchmark`, `/dream`, `/good-claude`.
 **Work**: low-risk one-by-one removal — each command is its own file and an entry in the `COMMANDS` array. Delete the file, remove the import + array entry, build, repeat.
+
+### Migrate config paths `.openclaude/` → `.council/`
+**Why deferred**: the rebrand pass renamed user-facing strings but intentionally left `.openclaude*` config paths alone. Renaming them now would orphan the user's existing Anthropic OAuth (`~/.openclaude/.credentials.json`), the council provider profile (`~/.openclaude/.openclaude-profile.json`), settings (`~/.openclaude/settings.json`, `~/.openclaude.json`), shell snapshots, plugins, backups, etc. — every piece of state the CLI writes today. Also there are ~10 test files asserting on the literal strings `.openclaude` / `.openclaude-profile.json`, and the `getClaudeConfigHomeDir()` logic in `src/utils/envUtils.ts` has migration handling for `~/.claude` → `~/.openclaude` that would need a third step.
+
+**Work**:
+1. Add a similar one-time migrator in `getClaudeConfigHomeDir()` for `~/.openclaude` → `~/.council` (preserve the existing `~/.claude` → `~/.openclaude` path so users coming from upstream Claude Code still migrate cleanly).
+2. Rename the constant `PROFILE_FILE_NAME = '.openclaude-profile.json'` → `'.council-profile.json'` in `src/utils/providerProfile.ts:42` and similar string constants for the settings file (`~/.openclaude.json` → `~/.council.json`).
+3. Sweep all string references: `grep -rn "\.openclaude" src` will find them. Update each from the literal `.openclaude` to `.council`.
+4. Update test fixtures and assertions in `src/utils/openclaudePaths.test.ts`, `src/utils/openclaudeInstallSurfaces.test.ts`, `src/utils/openclaudeUiSurfaces.test.ts`, and any other `*.test.ts` files matching the grep above.
+5. Add a CHANGELOG entry documenting the migration so users understand what moved.
+6. Build, run the test suite, smoke-test that an existing user's config gets migrated on first launch.
+
+**Risks**: dropping the migration step would silently orphan user state. The migration itself must be idempotent and safe to run twice (e.g., if both `~/.openclaude` and `~/.council` exist, prefer the newer one and warn). Test on a non-primary user first — there's no clean rollback once the rename runs.
 
 ## P4 — speculative future
 

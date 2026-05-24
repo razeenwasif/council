@@ -26,15 +26,15 @@ The sections below describe the underlying OpenClaude CLI on which Council is bu
 npm install -g @gitlawb/openclaude
 ```
 
-If the install later reports `ripgrep not found`, install ripgrep system-wide and confirm `rg --version` works in the same terminal before starting OpenClaude.
+If the install later reports `ripgrep not found`, install ripgrep system-wide and confirm `rg --version` works in the same terminal before starting Council.
 
 ### Start
 
 ```bash
-openclaude
+council
 ```
 
-Inside OpenClaude:
+Inside Council:
 
 - run `/provider` for guided provider setup and saved profiles
 - run `/onboard-github` for GitHub Models onboarding
@@ -48,7 +48,7 @@ export CLAUDE_CODE_USE_OPENAI=1
 export OPENAI_API_KEY=sk-your-key-here
 export OPENAI_MODEL=gpt-4o
 
-openclaude
+council
 ```
 
 Windows PowerShell:
@@ -58,7 +58,7 @@ $env:CLAUDE_CODE_USE_OPENAI="1"
 $env:OPENAI_API_KEY="sk-your-key-here"
 $env:OPENAI_MODEL="gpt-4o"
 
-openclaude
+council
 ```
 
 ### Fastest local Ollama setup
@@ -70,7 +70,7 @@ export CLAUDE_CODE_USE_OPENAI=1
 export OPENAI_BASE_URL=http://localhost:11434/v1
 export OPENAI_MODEL=qwen2.5-coder:7b
 
-openclaude
+council
 ```
 
 Windows PowerShell:
@@ -80,7 +80,7 @@ $env:CLAUDE_CODE_USE_OPENAI="1"
 $env:OPENAI_BASE_URL="http://localhost:11434/v1"
 $env:OPENAI_MODEL="qwen2.5-coder:7b"
 
-openclaude
+council
 ```
 
 ## Supported Providers
@@ -92,7 +92,7 @@ openclaude
 | Gemini | `/provider` or env vars | Supports API key only |
 | GitHub Models | `/onboard-github` | Interactive onboarding with saved credentials |
 | Codex OAuth | `/provider` | Opens ChatGPT sign-in in your browser and stores Codex credentials securely |
-| Codex | `/provider` | Uses existing Codex CLI auth, OpenClaude secure storage, or env credentials |
+| Codex | `/provider` | Uses existing Codex CLI auth, Council secure storage, or env credentials |
 | Gitlawb Opengateway | `/provider` or zero-config fallback | Free smart gateway at `https://opengateway.gitlawb.com/v1`; routes Xiaomi MiMo and GMI Cloud partner models by `OPENAI_MODEL` |
 | Xiaomi MiMo | `/provider` or env vars | OpenAI-compatible API at `https://api.xiaomimimo.com/v1`; uses `MIMO_API_KEY` and defaults to `mimo-v2.5-pro` |
 | Ollama | `/provider` or env vars | Local inference with no API key |
@@ -110,20 +110,20 @@ openclaude
 
 ## Provider Notes
 
-OpenClaude supports multiple providers, but behavior is not identical across all of them.
+Council supports multiple providers, but behavior is not identical across all of them.
 
 - Anthropic-specific features may not exist on other providers
 - Tool quality depends heavily on the selected model
 - Smaller local models can struggle with long multi-step tool flows
-- Some providers impose lower output caps than the CLI defaults, and OpenClaude adapts where possible
+- Some providers impose lower output caps than the CLI defaults, and Council adapts where possible
 - Gitlawb Opengateway uses one OpenAI-compatible base URL. Switch between `mimo-*` and `google/gemini-3.1-flash-lite-preview` with `/model`; do not pin the base URL to `/v1/xiaomi-mimo`.
-- Xiaomi MiMo uses `api-key` header auth on the direct OpenAI-compatible route and currently does not support `/usage` reporting in OpenClaude
+- Xiaomi MiMo uses `api-key` header auth on the direct OpenAI-compatible route and currently does not support `/usage` reporting in Council
 
 For best results, use models with strong tool/function calling support.
 
 ## Agent Routing
 
-OpenClaude can route different agents to different models through settings-based routing. This is useful for cost optimization or splitting work by model strength.
+Council can route different agents to different models through settings-based routing. This is useful for cost optimization or splitting work by model strength.
 
 Add to `~/.openclaude.json`:
 
@@ -159,7 +159,7 @@ By default, `WebSearch` works on non-Anthropic models using DuckDuckGo. This giv
 
 > **Note:** DuckDuckGo fallback works by scraping search results and may be rate-limited, blocked, or subject to DuckDuckGo's Terms of Service. If you want a more reliable supported option, configure Firecrawl.
 
-For Anthropic-native backends and Codex responses, OpenClaude keeps the native provider web search behavior.
+For Anthropic-native backends and Codex responses, Council keeps the native provider web search behavior.
 
 `WebFetch` works, but its basic HTTP plus HTML-to-markdown path can still fail on JavaScript-rendered sites or sites that block plain HTTP requests.
 
@@ -199,7 +199,7 @@ Helpful commands:
 
 ## Testing And Coverage
 
-OpenClaude uses Bun's built-in test runner for unit tests.
+Council uses Bun's built-in test runner for unit tests.
 
 Run the full unit suite:
 
@@ -238,7 +238,7 @@ Recommended contributor validation before opening a PR:
 - `bun run test:coverage` for broader unit coverage when your change affects shared runtime or provider logic
 - focused `bun test ...` runs for the files and flows you changed
 
-Coverage output is written to `coverage/lcov.info`, and OpenClaude also generates a git-activity-style heatmap at `coverage/index.html`.
+Coverage output is written to `coverage/lcov.info`, and Council also generates a git-activity-style heatmap at `coverage/index.html`.
 ## Repository Structure
 
 - `src/` - core CLI/runtime
@@ -269,9 +269,9 @@ For larger changes, open an issue first so the scope is clear before implementat
 
 ## Disclaimer
 
-OpenClaude is an independent community project and is not affiliated with, endorsed by, or sponsored by Anthropic.
+Council is an independent community project and is not affiliated with, endorsed by, or sponsored by Anthropic.
 
-OpenClaude originated from the Claude Code codebase and has since been substantially modified to support multiple providers and open use. "Claude" and "Claude Code" are trademarks of Anthropic PBC. See [LICENSE](LICENSE) for details.
+Council originated from the Claude Code codebase and has since been substantially modified to support multiple providers and open use. "Claude" and "Claude Code" are trademarks of Anthropic PBC. See [LICENSE](LICENSE) for details.
 
 ## License
 

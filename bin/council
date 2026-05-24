@@ -5,11 +5,22 @@
  *
  * If dist/cli.mjs exists (built), run that.
  * Otherwise, tell the user to build first or use `bun run dev`.
+ *
+ * Council mode is enabled at startup by setting CLAUDE_CODE_COORDINATOR_MODE
+ * and CLAUDE_CODE_COUNCIL_MODE before the bundle loads — the agent registry
+ * (getAgentDefinitionsWithOverrides in loadAgentsDir.ts) is memoized at first
+ * read, so flipping these env vars from a slash command at runtime is too
+ * late. To run a non-council session, set COUNCIL_OFF=1 in the environment.
  */
 
 import { existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
+
+if (!process.env.COUNCIL_OFF) {
+  process.env.CLAUDE_CODE_COORDINATOR_MODE = '1'
+  process.env.CLAUDE_CODE_COUNCIL_MODE = '1'
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const distPath = join(__dirname, '..', 'dist', 'cli.mjs')

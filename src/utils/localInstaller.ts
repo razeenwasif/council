@@ -38,7 +38,7 @@ export function getCandidateLocalInstallDirs(options?: {
 
 function getCandidateLocalBinaryPaths(localInstallDir: string): string[] {
   return [
-    join(localInstallDir, 'node_modules', '.bin', 'openclaude'),
+    join(localInstallDir, 'node_modules', '.bin', 'council'),
     join(localInstallDir, 'node_modules', '.bin', 'claude'),
   ]
 }
@@ -52,7 +52,7 @@ export function isManagedLocalInstallationPath(execPath: string): boolean {
 }
 
 export function getLocalClaudePath(): string {
-  return join(getLocalInstallDir(), 'openclaude')
+  return join(getLocalInstallDir(), 'council')
 }
 
 /**

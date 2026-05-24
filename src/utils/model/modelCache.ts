@@ -1,5 +1,5 @@
 /**
- * Model Caching for OpenClaude
+ * Model Caching for Council
  * 
  * Caches model lists to disk for faster startup and offline access.
  * Uses async fs operations to avoid blocking the event loop.

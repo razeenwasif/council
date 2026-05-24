@@ -23,6 +23,10 @@ export const PERFORMANCE_AGENT: BuiltInAgentDefinition = {
   baseDir: 'built-in',
   model: 'llama-3.3-70b-versatile',
   color: 'orange',
-  omitClaudeMd: false,
+  // Groq's free tier on llama-3.3-70b-versatile has a strict per-request
+  // token cap (~8K). Strip the auto-injected CLAUDE.md hierarchy from this
+  // agent's context — the Performance lens reasons from the prompt itself
+  // plus read tools, not from project rules. Same pattern exploreAgent uses.
+  omitClaudeMd: true,
   getSystemPrompt: () => PERFORMANCE_PROMPT,
 }

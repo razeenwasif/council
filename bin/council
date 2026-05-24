@@ -22,6 +22,25 @@ if (!process.env.COUNCIL_OFF) {
   process.env.CLAUDE_CODE_COUNCIL_MODE = '1'
 }
 
+// When the deterministic-orchestrator path is opted into, force
+// synchronous agent dispatch. Coordinator mode (just set above) would
+// otherwise route every AgentTool.call into the background-task path:
+// the call returns `{ status: "async_launched", agentId }` immediately,
+// before the agent has actually produced any result. The deterministic
+// orchestrator (runCouncilFromToolContext) doesn't have task-notification
+// machinery wired up; it just awaits the promise. Sync dispatch makes
+// AgentTool.call resolve with the real result instead.
+//
+// This must be set BEFORE the bundle loads — the flag is captured at
+// module load time in AgentTool.tsx as a top-level const.
+//
+// Parallelism is preserved: runCouncil still uses Promise.all to fan out
+// the seven spawns concurrently. We're only changing the per-call return
+// shape, not the orchestration model.
+if (process.env.COUNCIL_DETERMINISTIC === '1') {
+  process.env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS = '1'
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const distPath = join(__dirname, '..', 'dist', 'cli.mjs')
 

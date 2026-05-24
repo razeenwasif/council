@@ -1,0 +1,117 @@
+import { describe, expect, test } from 'bun:test'
+import {
+  buildExecutorPrompt,
+  buildRevisionPrompt,
+  parseVerdict,
+} from './councilSpawn.js'
+import type { Review, SynthesizedPlan } from './councilOrchestrator.js'
+
+const plan: SynthesizedPlan = {
+  text: 'use Map, add tests, throw on NaN',
+  modelId: 'synthesizer',
+  durationMs: 100,
+  costUsd: 0.01,
+}
+
+describe('parseVerdict', () => {
+  test('extracts block from "block — bracket-notation pollution slips guard"', () => {
+    expect(
+      parseVerdict('block — bracket-notation pollution keys slip the guard'),
+    ).toBe('block')
+  })
+
+  test('extracts pass from "pass — clean separation"', () => {
+    expect(parseVerdict('pass — clean separation, no surprises')).toBe('pass')
+  })
+
+  test('extracts concern from "concern — naming"', () => {
+    expect(parseVerdict('concern — naming should be more explicit')).toBe(
+      'concern',
+    )
+  })
+
+  test('extracts nit from "nit — missing JSDoc"', () => {
+    expect(parseVerdict('nit — missing JSDoc on the public function')).toBe(
+      'nit',
+    )
+  })
+
+  test('block beats concern when both appear', () => {
+    // Block is the most serious verdict; if a model mentions both, the
+    // block carries the day.
+    expect(parseVerdict('block — also a minor concern about naming')).toBe(
+      'block',
+    )
+  })
+
+  test('falls back to concern when no verdict word is present', () => {
+    expect(parseVerdict('I think this is fine')).toBe('concern')
+  })
+
+  test('case-insensitive', () => {
+    expect(parseVerdict('BLOCK — caps are valid too')).toBe('block')
+  })
+})
+
+describe('buildExecutorPrompt', () => {
+  test('embeds the user request and the plan text', () => {
+    const out = buildExecutorPrompt('add a /health endpoint', plan)
+    expect(out).toContain('add a /health endpoint')
+    expect(out).toContain(plan.text)
+    expect(out).toMatch(/summarize|summary/i)
+  })
+})
+
+describe('buildRevisionPrompt', () => {
+  test('includes the original request, plan, previous diff, and blocking concerns', () => {
+    const reviews: Review[] = [
+      {
+        role: 'security',
+        verdict: 'block',
+        findings: ['prototype pollution via __proto__[x]'],
+        modelId: 'mistral-large',
+        durationMs: 100,
+        costUsd: 0.02,
+      },
+      {
+        role: 'critic',
+        verdict: 'block',
+        findings: ['missing JSDoc and Object.create(null) base'],
+        modelId: 'gpt-4.1-mini',
+        durationMs: 100,
+        costUsd: 0.01,
+      },
+    ]
+
+    const out = buildRevisionPrompt('add parser', plan, {
+      previousDiff: 'modified src/utils/x.ts',
+      blockingReviews: reviews,
+    })
+
+    expect(out).toContain('add parser')
+    expect(out).toContain(plan.text)
+    expect(out).toContain('modified src/utils/x.ts')
+    expect(out).toContain('Security')
+    expect(out).toContain('prototype pollution')
+    expect(out).toContain('Critic')
+    expect(out).toContain('Object.create(null)')
+    expect(out).toMatch(/\(2\)/) // mentions count of 2 blocking concerns
+  })
+
+  test('explicitly tells the executor to make edits, not refuse', () => {
+    const out = buildRevisionPrompt('x', plan, {
+      previousDiff: 'd',
+      blockingReviews: [
+        {
+          role: 'skeptic',
+          verdict: 'block',
+          findings: ['boom'],
+          modelId: 'g',
+          durationMs: 1,
+          costUsd: 0,
+        },
+      ],
+    })
+    expect(out).toMatch(/Make explicit edits|do not skip|do not refuse/i)
+  })
+})

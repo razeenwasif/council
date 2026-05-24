@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### `/council on|off` toggles mid-session + `/council run <prompt>` deterministic path
+
+Two P1 items closed.
+
+**`/council on|off` now actually toggles** (`src/commands/council/council.ts`). Flips the env vars AND calls `clearAgentDefinitionsCache()` so the next prompt re-reads `getBuiltInAgents()`, which checks the env vars at call time and returns the right agent set. `getCoordinatorSystemPrompt()` is non-cached so the coordinator prompt switches naturally. Help text and CHANGELOG no longer carry the "must relaunch" caveat.
+
+**`/council run <prompt>` is the deterministic-orchestrator path**, exposed as a new subcommand (same `src/commands/council/council.ts`). Builds the spawn adapter from the slash command's `ToolUseContext` and calls `runCouncilFromToolContext`. Reports a structured summary at the end with verdict tally, duration, cost, and the executor output. Distinguishes timeout / cost-ceiling / member-failure errors with role-and-stage-specific messages.
+
+The wiring lives in **`src/coordinator/council/councilSpawn.ts`** — the integration adapter for `runCouncil`. Drives `AgentTool.call()` once per agent with a synthesized `assistantMessage` stub (analytics IDs are random UUIDs — harmless but bogus). Includes `parseVerdict` (block > concern > nit > pass priority on first-200-char head), `buildExecutorPrompt`, and `buildRevisionPrompt`. Convenience wrapper `runCouncilFromToolContext` builds the adapter and invokes the orchestrator in one call. **10 unit tests** for the pure helpers.
+
+The default council mode still uses the LLM-coordinator-with-strict-prompt path. After first-run verification of `/council run`, the REPL turn handler can intercept council-worthy prompts and call `runCouncilFromToolContext` directly — that last-mile work is now the only P1 remaining (tracked in BACKLOG).
+
+Council test totals: **48 pass · 0 fail · 114 expects · ~650ms**.
+
 ### `/router llm` classifier wired
 
 The LLM-based router strategy is no longer a stub. `/router llm` now makes a real chat-completions call to `gemini-3.5-flash` (or whichever model is bound to `agentRouting.classifier` if set, with `gemini-3.5-flash` as the default fallback) and routes solo vs council based on the result.

@@ -2,28 +2,33 @@ import type { LocalCommandCall } from '../../types/command.js'
 import { isCouncilMode } from '../../coordinator/council/councilMode.js'
 import { getRouterMode } from '../../coordinator/council/router/strategy.js'
 import { getSettings_DEPRECATED } from '../../utils/settings/settings.js'
+import { clearAgentDefinitionsCache } from '../../tools/AgentTool/loadAgentsDir.js'
+import {
+  CouncilCostCeilingError,
+  CouncilMemberFailureError,
+  CouncilTimeoutError,
+} from '../../coordinator/council/councilOrchestrator.js'
+import { runCouncilFromToolContext } from '../../coordinator/council/councilSpawn.js'
 
-const HELP = `Usage: /council [status|on|off]
+const HELP = `Usage: /council [status|on|off|run <prompt>]
 
-  status  Report whether council mode is currently on, the router mode,
-          and the per-role model bindings (resolved from settings.json
-          agentRouting + agentModels).
-  on      No-op in v1 — council mode must be active at session start because
-          the agent registry is memoized at first read. The \`council\`
-          binary sets the env vars before launch, so council mode is on by
-          default. To run without council, set COUNCIL_OFF=1 and relaunch.
-  off     Same constraint as \`on\` — toggling at runtime won't unregister
-          the council agents. Relaunch with COUNCIL_OFF=1 council to run
-          a non-council session.
+  status        Report whether council mode is currently on, the router
+                mode, and the per-role model bindings.
+  on            Enable council mode for subsequent prompts. Flips env vars
+                and invalidates the agent registry cache so the next
+                prompt sees the seven council agents.
+  off           Disable council mode. Symmetric to \`on\`.
+  run <prompt>  Explicitly run the deterministic orchestrator (runCouncil)
+                on a given prompt. Uses runCouncilFromToolContext under
+                the hood — distinct from the default LLM-coordinator
+                path. Useful for testing the deterministic orchestrator
+                while it's still being verified.
 
-The \`on\`/\`off\` no-op constraint is tracked in BACKLOG.md (P1) — proper
-runtime toggling requires invalidating the agent definitions cache and
-re-applying the coordinator system prompt mid-session.`
-
-const RESTART_NOTE =
-  '\n\nNote: agent registration happens once at session start (memoized). To change council state, relaunch:\n' +
-  '  - council                  → council mode on (default)\n' +
-  '  - COUNCIL_OFF=1 council    → council mode off'
+\`on\` and \`off\` take effect on the *next* user prompt. The current
+conversation context (if any) carries over; only the agent registry and
+system prompt change. To run a non-council session from the start, set
+COUNCIL_OFF=1 before launching:
+  COUNCIL_OFF=1 council`
 
 // Fallback role→model map. Used when settings.json has no per-role binding
 // (the agent falls back to the global provider in that case). Mirrors the
@@ -41,8 +46,6 @@ const DEFAULT_ROLE_MODEL: Record<string, string> = {
 }
 
 function formatModelTable(): string {
-  // Read agentRouting at status time so the user sees the live config, not a
-  // cached copy. getSettings_DEPRECATED loads from ~/.openclaude/settings.json.
   const settings = (getSettings_DEPRECATED() ?? {}) as {
     agentRouting?: Record<string, string>
     agentModels?: Record<string, { base_url?: string }>
@@ -72,7 +75,6 @@ function formatModelTable(): string {
       const hint = baseUrl ? ` ${baseUrl.replace(/^https?:\/\//, '').split('/')[0]}` : ''
       rows.push(`  ${role.padEnd(13)} ${modelId.padEnd(25)}${hint}`)
     } else {
-      // Not routed → falls back to global provider
       const fallback = DEFAULT_ROLE_MODEL[role] ?? '(global default)'
       rows.push(`  ${role.padEnd(13)} ${fallback}`)
     }
@@ -81,31 +83,115 @@ function formatModelTable(): string {
   return rows.join('\n')
 }
 
-export const call: LocalCommandCall = async args => {
-  const sub = args.trim().toLowerCase() || 'status'
+function formatCouncilResultSummary(result: {
+  proposals: Array<{ role: string; modelId: string; text: string }>
+  plan: { text: string }
+  execution: { summary: string }
+  reviews: Array<{ role: string; verdict: string }>
+  revised?: { summary: string }
+  totalCostUsd: number
+  totalDurationMs: number
+}): string {
+  const verdictTally = result.reviews.reduce<Record<string, number>>(
+    (acc, r) => ({ ...acc, [r.verdict]: (acc[r.verdict] ?? 0) + 1 }),
+    {},
+  )
+  const tallyStr = ['pass', 'nit', 'concern', 'block']
+    .filter(v => (verdictTally[v] ?? 0) > 0)
+    .map(v => `${verdictTally[v]} ${v}`)
+    .join(' · ')
+
+  const lines: string[] = []
+  lines.push(
+    `Council finished — ${result.proposals.length} proposals, ${tallyStr}.`,
+  )
+  lines.push(
+    `Duration: ${(result.totalDurationMs / 1000).toFixed(1)}s · Cost: $${result.totalCostUsd.toFixed(4)}`,
+  )
+  if (result.revised) {
+    lines.push(`Revision applied: ${result.revised.summary}`)
+  }
+  lines.push('')
+  lines.push('Executor output:')
+  lines.push(result.execution.summary)
+  return lines.join('\n')
+}
+
+export const call: LocalCommandCall = async (args, context) => {
+  const trimmed = args.trim()
+  const firstSpace = trimmed.indexOf(' ')
+  const sub = (firstSpace === -1 ? trimmed : trimmed.slice(0, firstSpace))
+    .toLowerCase() || 'status'
+  const rest = firstSpace === -1 ? '' : trimmed.slice(firstSpace + 1).trim()
 
   switch (sub) {
-    case 'on':
+    case 'on': {
       process.env.CLAUDE_CODE_COUNCIL_MODE = '1'
       process.env.CLAUDE_CODE_COORDINATOR_MODE = '1'
+      clearAgentDefinitionsCache()
       return {
         type: 'text',
         value:
-          (isCouncilMode()
-            ? 'Council mode: ON (env vars set). '
-            : 'Council mode env vars set, but ') +
-          'agent registry was already built at session start — flipping at runtime will not re-register the council agents.' +
-          RESTART_NOTE,
+          'Council mode ON. Next prompt will convene seven members → synthesizer → executor → review.',
       }
+    }
 
-    case 'off':
+    case 'off': {
       delete process.env.CLAUDE_CODE_COUNCIL_MODE
+      clearAgentDefinitionsCache()
       return {
         type: 'text',
         value:
-          'Council mode env var cleared, but agents registered at startup will remain registered for this session.' +
-          RESTART_NOTE,
+          'Council mode OFF. Next prompt uses the standard openclaude flow.',
       }
+    }
+
+    case 'run': {
+      if (!rest) {
+        return {
+          type: 'text',
+          value:
+            'Usage: /council run <prompt>\n\n' +
+            'Runs the deterministic orchestrator (runCouncil) on the given prompt. ' +
+            'See HELP for the difference from the default LLM-coordinator path.',
+        }
+      }
+      // The slash command's context extends ToolUseContext — pass it through
+      // to the spawn adapter unchanged.
+      try {
+        const result = await runCouncilFromToolContext({
+          userPrompt: rest,
+          toolUseContext: context,
+          canUseTool: context.canUseTool,
+          emitStatus: () => {},
+        })
+        return { type: 'text', value: formatCouncilResultSummary(result) }
+      } catch (err) {
+        if (err instanceof CouncilTimeoutError) {
+          return {
+            type: 'text',
+            value: `Council timed out at stage "${err.stage}"${err.role ? ` (${err.role})` : ''} after ${err.timeoutMs}ms.`,
+          }
+        }
+        if (err instanceof CouncilCostCeilingError) {
+          return {
+            type: 'text',
+            value: `Council hit cost ceiling ($${err.ceilingUsd}) at stage "${err.stage}". Accumulated: $${err.accumulatedUsd.toFixed(4)}.`,
+          }
+        }
+        if (err instanceof CouncilMemberFailureError) {
+          const inner = err.underlying instanceof Error ? err.underlying.message : String(err.underlying)
+          return {
+            type: 'text',
+            value: `Council member ${err.role} failed during ${err.stage}: ${inner}`,
+          }
+        }
+        return {
+          type: 'text',
+          value: `Council run failed: ${err instanceof Error ? err.message : String(err)}`,
+        }
+      }
+    }
 
     case 'status': {
       const councilOn = isCouncilMode()

@@ -4,6 +4,8 @@ Things deliberately not built in v1, grouped by priority. Each item names what's
 
 ## Done (since BACKLOG was first written)
 
+- ✓ **`/council on|off` toggles mid-session** — `clearAgentDefinitionsCache()` called on toggle so the next prompt re-reads the env vars and re-registers the right agent set. `getCoordinatorSystemPrompt()` already reads env at call time so the prompt switches naturally. No more "must relaunch" caveat in the help text.
+- ✓ **Deterministic orchestrator API + `/council run`** — `runCouncilFromToolContext` wires `runCouncil` to `AgentTool.call()` via a stub-`assistantMessage` adapter. Available as `/council run <prompt>` for explicit testing while the LLM-coordinator path remains the default. Tests: 10 cases for the pure helpers (parseVerdict, prompt builders). Last-mile verification (replacing the LLM coordinator at the REPL turn handler) tracked above.
 - ✓ **`/router llm` classifier wired** — real gemini-3.5-flash call with timeout, AbortController, stricter ambiguity-rejecting parse, full heuristic fallback. 21 unit tests.
 - ✓ **Build and verify** — passing across all commits since `f26bdb3`.
 - ✓ **End-to-end smoke** — 6 council-authored artifacts in `src/utils/council/` (formatCost, withRetry, lruCache, clamp, parseQueryString + parseQueryString revision). The parseQueryString run exercised the full block→revision→retry path with all 7 voices reporting.
@@ -13,16 +15,12 @@ Things deliberately not built in v1, grouped by priority. Each item names what's
 
 ## P1 — high-impact, fits within v1.x
 
-### Wire the deterministic orchestrator into the prompt flow
-**Status**: `runCouncil()` is implemented in `src/coordinator/council/councilOrchestrator.ts` with dependency-injected spawn, per-member timeout, per-query cost ceiling, and unit tests. The remaining work is the **integration adapter** — providing a real `spawnAgent` implementation that invokes openclaude's `runAgent` (or equivalent) and the wiring that routes prompts through `runCouncil` instead of through the LLM-coordinator-with-strict-prompt path.
+### Replace the LLM-coordinator path with `runCouncilFromToolContext` as the default
+**Status**: `runCouncilFromToolContext` is implemented and exposed via `/council run <prompt>` (see `src/coordinator/council/councilSpawn.ts` and the `run` subcommand in `src/commands/council/council.ts`). It drives the existing `AgentTool.call()` machinery directly via a thin adapter that synthesizes a stub `assistantMessage` (analytics IDs are random UUIDs — harmless but bogus). All seven council members + synthesizer + executor + review pass + revision are wired. Council mode (the default `council` binary) still uses the LLM-coordinator-with-strict-prompt path until this new path is verified in a real session.
 
-**Why deferred**: `runAgent` is a 975-line async generator that expects a fully-populated `toolUseContext` (MCP clients, abort controller, permission function, precomputed tool pool, etc.). Constructing this from outside the AgentTool's `call()` handler is substantial openclaude-internal work that doesn't belong in the orchestration logic.
+**Why this remains P1**: needs first-run verification. The `assistantMessage` stub is the only sketchy piece — if openclaude's internal pathways read fields beyond `.message.id` / `.requestId` from it, the stub will need extending. Watch the first `/council run` invocation for surprises.
 
-**Work**: (1) add an adapter `spawnAgentViaRunAgent(role, prompt, ...): Promise<Proposal | ...>` that builds the necessary context. (2) Replace the `/council on/off` env-var toggle with a hook into the prompt-submission path that invokes `runCouncil` directly when council mode is active. (3) Remove the LLM-coordinator path (or keep behind a fallback flag during migration).
-
-### Make `/council on|off` actually toggle mid-session
-**Why deferred**: agent registration runs through `getAgentDefinitionsWithOverrides` in `src/tools/AgentTool/loadAgentsDir.ts:295`, which is `memoize`d at session start. The coordinator system prompt is similarly resolved once. Flipping `CLAUDE_CODE_COUNCIL_MODE` from the slash command updates `process.env` but neither the agent registry nor the prompt re-reads it. v1 works around this by activating council mode in `bin/council` (env vars set before bundle load) and surfacing the constraint in the `/council` help text.
-**Work**: (1) export and call `clearAgentDefinitionsCache()` (already exists at `loadAgentsDir.ts:385`) from the `/council on/off` handler. (2) Force a re-resolve of the coordinator system prompt — likely a new helper in `src/coordinator/coordinatorMode.ts` that other code can call to invalidate any cached prompt string. (3) After both invalidations, the next user prompt should see the new registry + prompt. Risk: in-flight conversations carry context that assumed the previous mode; consider whether toggling mid-thread is even semantically meaningful, or whether the slash command should hard-require a session boundary.
+**Work**: (1) run `/council run <a substantive prompt>` end-to-end in a live session; iterate on the assistantMessage stub if anything breaks. (2) Once verified, replace the LLM-coordinator-prompt path at the REPL turn handler — intercept the user's prompt when `isCouncilMode()` is on and call `runCouncilFromToolContext` directly instead of letting the LLM coordinator orchestrate. (3) Drop the strict-prompt path from `prompts.ts` (it's been carrying weight; can retire).
 
 ## P2 — UX polish
 

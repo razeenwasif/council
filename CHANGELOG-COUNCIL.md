@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Deterministic orchestrator + timeouts + cost ceiling + `/council status` detail
+
+Three BACKLOG P1 items shipped in one pass, plus the P2 status-detail polish.
+
+**`runCouncil()` is now implemented** (`src/coordinator/council/councilOrchestrator.ts`) — full propose → synthesize → execute → review → optional-revise pipeline. Uses dependency injection (`CouncilAdapters` with `spawnProposal` / `spawnSynthesizer` / `spawnExecutor` / `spawnReview`) so the orchestration logic is decoupled from openclaude's `runAgent` machinery. The integration adapter — providing a real `spawnAgent` backed by openclaude internals — is the remaining v2 wiring work, tracked in BACKLOG P1.
+
+**Per-member timeout** built into the orchestrator. Defaults: `memberTimeoutMs = 60_000` for proposals + reviews, `longTimeoutMs = 5 * 60_000` for synthesizer + executor. Implemented via `AbortController` + `Promise.race`; the underlying call sees the abort signal so it can clean up. Throws `CouncilTimeoutError` naming the stage and (when applicable) the role.
+
+**Per-query cost ceiling** built into the orchestrator. Default `costCeilingUsd = 3`. The `CostLedger` accumulates per stage and throws `CouncilCostCeilingError` if accumulated cost would exceed the ceiling, including a pre-flight check before each stage that's hard to abort mid-flight.
+
+**Member failures** surface as `CouncilMemberFailureError` (distinct from timeouts) — caller can choose to retry or fall back without conflating "network blip" with "vendor latency."
+
+**17 unit tests** in `councilOrchestrator.test.ts`, covering: pure helpers (counting, threshold, formatting), happy path, revision triggering on ≥3 blocks (boundary), revision NOT triggering at 2, revision context shape, hung-member timeout, cost-ceiling abort, member-failure wrapping. All pass under `bun test`.
+
+**`/council status` now reports** (in `src/commands/council/council.ts`):
+- Council mode + router mode on one line
+- Live per-role model bindings (read from `~/.openclaude/settings.json` `agentRouting` + `agentModels`, with endpoint hints) — so users see what's actually wired, not what's documented
+- Quorum math reminder (consensus ≥5/7, revision ≥3/7)
+- Pointer to COUNCIL.md and BACKLOG.md
+
+BACKLOG entries marked done where appropriate; the "wire orchestrator into the prompt flow" entry rewritten to describe the remaining adapter work specifically.
+
 ### Security + Performance seats added (6th and 7th members)
 
 Council expands from five to seven voices with two new specialist roles. Both run on free-tier providers — `mistral-large-latest` via Mistral La Plateforme for Security, `llama-3.3-70b-versatile` via Groq for Performance.

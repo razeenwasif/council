@@ -53,6 +53,7 @@ import { formatDuration, formatNumber } from './utils/format.js'
 import type { FpsMetrics } from './utils/fpsTracker.js'
 import { getCanonicalName } from './utils/model/model.js'
 import { calculateUSDCost } from './utils/modelCost.js'
+import { appendUsageLedger } from './utils/usageLedger.js'
 export {
   getTotalCostUSD as getTotalCost,
   getTotalDuration,
@@ -189,6 +190,54 @@ export function saveCurrentSessionCosts(fpsMetrics?: FpsMetrics): void {
     ),
     lastSessionId: getSessionId(),
   }))
+
+  // Also append a record to the cross-session usage ledger so the
+  // /usage command can report per-day + per-model spend without
+  // needing to keep all sessions hot in projectConfig. Best-effort —
+  // appendUsageLedger swallows write errors to stderr.
+  appendUsageLedgerForCurrentSession()
+}
+
+/**
+ * Snapshot the in-memory cost-tracker state into a UsageLedgerEntry and
+ * append it. Kept private so callers go through `saveCurrentSessionCosts`,
+ * which always co-pairs the projectConfig write with the ledger write.
+ */
+function appendUsageLedgerForCurrentSession(): void {
+  const modelUsageMap = getModelUsage()
+  // No model usage means nothing to record (fresh REPL boot before any
+  // API calls). Skip to keep the ledger clean of empty records.
+  if (Object.keys(modelUsageMap).length === 0) return
+
+  const modelUsage: Record<
+    string,
+    {
+      inputTokens: number
+      outputTokens: number
+      cacheReadInputTokens: number
+      cacheCreationInputTokens: number
+      costUSD: number
+    }
+  > = {}
+  let totalCostUSD = 0
+  for (const [model, usage] of Object.entries(modelUsageMap)) {
+    modelUsage[model] = {
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      cacheReadInputTokens: usage.cacheReadInputTokens,
+      cacheCreationInputTokens: usage.cacheCreationInputTokens,
+      costUSD: usage.costUSD,
+    }
+    totalCostUSD += usage.costUSD
+  }
+
+  appendUsageLedger({
+    ts: new Date().toISOString(),
+    sessionId: getSessionId(),
+    cwd: process.cwd(),
+    modelUsage,
+    totalCostUSD,
+  })
 }
 
 function formatCost(cost: number, maxDecimalPlaces: number = 4): string {

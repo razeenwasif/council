@@ -25,6 +25,9 @@ Things deliberately not built yet, grouped by priority. Each item names what's m
 - ✓ **HEADLINE_DIRECTIVE hoisted to top of every role prompt** — Mistral + claude-opus-4-7 stop dropping the `## Headline` section.
 - ✓ **`memberTimeoutMs` 60s → 300s** — combined with fault tolerance, this is now the "voice is truly hung" ceiling, not "voice is slow."
 - ✓ **`/handoff` slash command** — spawns the executor one-shot to update `HANDOFF.md`; uses new reusable `runSingleAgentFromToolContext` helper.
+- ✓ **Stuck-spinner fix after council interception** — `resetLoadingState()` now called alongside `queryGuard.forceEnd()` in REPL so `userInputOnProcessing` clears (was keeping the spinner visible indefinitely after the council finished).
+- ✓ **0-tokens panel display fixed** — `claude.ts:2265` now mutates `usage` object fields in place rather than re-assigning, so AgentTool's progress-message snapshots (held by reference) see the final token totals. Anthropic now shows input+output; shim providers (DeepSeek, Gemini, OpenAI, Qwen, Mistral) show real values instead of 0.
+- ✓ **`/spend` command + usage ledger** — append-only `~/.openclaude/usage.jsonl` written on each session-end (via `saveCurrentSessionCosts`). Command supports `--today`, `--7d`, `--30d`, `--all`, `--models`, `--where`. Renders per-day cost table with top-model column + ASCII sparkline trend.
 
 ### Verified end-to-end with real council-authored code
 
@@ -34,38 +37,8 @@ Six artifacts in `src/utils/council/` (formatCost, withRetry, lruCache, clamp, p
 
 ## P2 — actively useful, not yet built
 
-### Fix "0 tokens" shown in agent panel for non-Anthropic providers
-
-**Symptom**: panel cells for DeepSeek, Gemini, OpenAI, Qwen, Mistral agents show `· 0 tokens` even after the agent completes successfully with real work. Only claude-opus-4-7 (Architect, Executor) shows non-zero token counts.
-
-**Root cause**: `calculateAgentStats` in `src/tools/AgentTool/UI.tsx:639-644` reads `usage.input_tokens` / `usage.output_tokens` / `usage.cache_creation_input_tokens` / `usage.cache_read_input_tokens` from the latest progress message's `data.message.message.usage`. The progress messages flow through openclaude's provider normalization layer. Non-Anthropic providers don't always populate those fields when their chat-completions responses are converted to BetaMessage shape — some return `usage` at a different path, some don't return it at all on streaming chunks, and the normalizer doesn't backfill from the final response.
-
-**Work**:
-1. Add a small test that fakes a non-Anthropic provider response (DeepSeek shape) and runs it through the existing provider normalizer; assert `usage.input_tokens` is populated on the resulting AssistantMessage.
-2. Trace the normalization path for each non-Anthropic provider — most live in `src/integrations/vendors/*` and pipe through a shared OpenAI-compatible response handler. Identify where usage gets dropped.
-3. The fix is likely a single function that maps `response.usage.prompt_tokens` → `betaUsage.input_tokens` and `response.usage.completion_tokens` → `betaUsage.output_tokens`, applied at the right point in the normalizer.
-4. Validate against each provider used by the council (DeepSeek for Implementer, Gemini for Skeptic/Synthesizer, OpenAI for Critic, Qwen for Tester, Mistral for Security/Performance).
-
-**Estimate**: ~1 day. The grep + trace is the bulk of the work; the actual fix is small.
-
-**Why P2**: actively confusing during runs. Users can't tell which voices used the most resources.
-
-### Total usage diagrams + spend tracking
-
-**What**: a `/usage` command that shows per-model + per-day token/spend tables, optionally with a sparkline or bar chart for the last N days. Persistent ledger so spend tracks across sessions.
-
-**Why deferred**: needs the "0 tokens" fix first — without per-call usage data flowing through the panel, there's no source of truth to aggregate. Also needs a per-call cost field; currently `costUsd: 0` in the deterministic path because `AgentTool.call` doesn't expose a flat cost in its result.
-
-**Work**:
-1. Surface per-call cost from AgentTool's result (look for a `costTracker.getTotalForToolUseId(...)` or similar that the LLM-coordinator path already uses for `/stats`).
-2. Add a persistent ledger (`~/.openclaude/usage.jsonl` — append-only, one record per spawn). Schema: `{timestamp, role, model, inputTokens, outputTokens, costUsd, durationMs, council_run_id}`.
-3. Write to the ledger from `completeMember` (we already have role + summary at that point).
-4. Build `/usage` command — render a table grouped by model + day. Use the same `boxen`-ish rendering style as `/stats`. Optional `--last 7d` flag.
-5. Optional v2: ASCII sparkline of daily spend.
-
-**Estimate**: ~1-2 days. Ledger + command is straightforward; the value depends on the "0 tokens" fix above being done first.
-
-**Why P2**: high signal-to-noise once #1 lands.
+(Empty — both prior P2 items shipped. Promote new entries here as
+they're identified.)
 
 ---
 

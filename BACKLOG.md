@@ -37,8 +37,27 @@ Six artifacts in `src/utils/council/` (formatCost, withRetry, lruCache, clamp, p
 
 ## P2 — actively useful, not yet built
 
-(Empty — both prior P2 items shipped. Promote new entries here as
-they're identified.)
+### Add pricing-table entries for shim provider models
+
+**Symptom**: `/spend --models` now correctly shows shim providers (deepseek-chat, gemini-3.5-flash, qwen3.6-plus, mistral-large-latest, mistral-medium-latest, gpt-4.1-mini) in the breakdown — that part landed in `c428f0e`. But the cost numbers for those rows are calculated at **claude-opus-4-7 rates** because openclaude's pricing table doesn't have entries for them. Result: an Implementer turn that actually cost ~$0.001 on DeepSeek shows up as ~$0.05 at opus rates.
+
+**Root cause**: `calculateUSDCost(resolvedModel, usage)` in `claude.ts:2282` uses `resolvedModel` (which is `options.model`, the parent main-loop model — usually claude-opus-4-7) for the cost math. We deliberately kept this when fixing the attribution bug because the alternative (use `providerOverride.model`) would return $0 for any model missing from the pricing table — hiding spend entirely. So the dollar values are intentionally approximate.
+
+**Work**:
+1. Find openclaude's pricing table. Likely in `src/utils/modelCost.ts` (where `calculateUSDCost` lives) or a JSON file it imports.
+2. Add per-model entries for the council's shim providers. Reference real pricing:
+   - DeepSeek: deepseek-chat input ~$0.27/1M, output ~$1.10/1M (cache discount)
+   - Gemini Flash: gemini-3.5-flash input ~$0.30/1M, output ~$2.50/1M (or free tier)
+   - Qwen: qwen3.6-plus input ~$0.40/1M, output ~$1.20/1M (DashScope)
+   - Mistral Large: ~$2.00/1M input, ~$6.00/1M output
+   - Mistral Medium: ~$0.40/1M input, ~$2.00/1M output
+   - OpenAI gpt-4.1-mini: ~$0.40/1M input, ~$1.60/1M output
+3. In `claude.ts:2282`, change `calculateUSDCost(resolvedModel, usage)` to `calculateUSDCost(attributionModel, usage)` (where `attributionModel` is the providerOverride-aware variant we already compute).
+4. Verify: run a council prompt, then `/spend --today` — deepseek/gemini/mistral rows should show realistic costs (cents, not dollars) and the total should drop accordingly.
+
+**Estimate**: ~2-3 hours. Mostly research (verifying current per-million-token pricing for each provider) + a small JSON/code edit. Risk is low — `calculateUSDCost` already handles "model not in table" gracefully (returns 0), so a partial fix is safe.
+
+**Why P2**: actively misleading. A user looking at `/spend --models` and thinking "wow, deepseek is expensive" would be drawing the wrong conclusion.
 
 ---
 

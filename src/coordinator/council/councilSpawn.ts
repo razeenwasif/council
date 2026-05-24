@@ -312,9 +312,25 @@ async function invokeAgentTool(
   // Stub assistantMessage. AgentTool reads .message.id and .requestId for
   // toolUseID composition and analytics attribution. Random UUIDs are
   // sufficient — no real-world hook depends on them being meaningful.
+  //
+  // KNOWN INTEGRATION ISSUE: when invoked from the deterministic path
+  // (COUNCIL_DETERMINISTIC=1), this stub is missing fields that the
+  // LLM-coordinator path supplies naturally. First live attempt failed
+  // with "Cannot read properties of undefined (reading 'startsWith')" —
+  // most likely candidates: missing `model` input field default, missing
+  // `assistantMessage.parentRequestId` / similar, or a downstream code
+  // path that assumes a field this stub doesn't include. Needs a stack
+  // trace from a live failure to pinpoint. Until fixed, COUNCIL_DETER-
+  // MINISTIC=1 callers fall back to the LLM-coordinator path by unsetting
+  // the env flag.
   const stubAssistantMessage = {
     message: { id: randomUUID() },
     requestId: randomUUID(),
+    // Defensive extras — fields we know AgentTool / runAgent reach for
+    // in some branches. Doesn't hurt to provide them even if unused.
+    parentRequestId: undefined,
+    role: 'assistant' as const,
+    type: 'assistant' as const,
   } as unknown as Parameters<typeof AgentTool.call>[3]
 
   const stubCanUseTool: CanUseToolFn =
@@ -326,16 +342,37 @@ async function invokeAgentTool(
   // per-member timeout can unblock even when AgentTool's internal work
   // doesn't observe our signal directly. (AgentTool may keep running in
   // the background after the race; orchestration unblocks regardless.)
-  const callPromise = AgentTool.call(
-    {
-      prompt: args.prompt,
-      subagent_type: args.subagent_type,
-      description: args.description,
-    } as Parameters<typeof AgentTool.call>[0],
-    args.toolUseContext,
-    stubCanUseTool,
-    stubAssistantMessage,
-  )
+  //
+  // We wrap the call in a try/catch so any synchronous-throw or unhandled
+  // rejection becomes a labelled error including the subagent_type and
+  // the underlying message — much easier to triage than a bare
+  // "Cannot read properties of undefined" coming from deep inside the
+  // openclaude internals.
+  const callPromise: Promise<unknown> = (async () => {
+    try {
+      return await AgentTool.call(
+        {
+          prompt: args.prompt,
+          subagent_type: args.subagent_type,
+          description: args.description,
+        } as Parameters<typeof AgentTool.call>[0],
+        args.toolUseContext,
+        stubCanUseTool,
+        stubAssistantMessage,
+      )
+    } catch (err) {
+      const inner = err instanceof Error ? err.message : String(err)
+      const enriched = new Error(
+        `AgentTool.call failed for subagent_type="${args.subagent_type}" via deterministic spawn adapter: ${inner}. ` +
+          `If you're running with COUNCIL_DETERMINISTIC=1, drop the env flag to fall back to the LLM-coordinator path while we iterate.`,
+      )
+      // Preserve the original stack so the underlying frame is debuggable.
+      if (err instanceof Error && err.stack) {
+        ;(enriched as Error & { cause?: unknown }).cause = err
+      }
+      throw enriched
+    }
+  })()
 
   const abortPromise = new Promise<never>((_, reject) => {
     args.signal.addEventListener(

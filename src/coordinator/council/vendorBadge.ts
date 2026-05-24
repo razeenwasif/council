@@ -8,12 +8,13 @@
  * required). Colors map to Ink's named ANSI palette so they render against
  * the terminal's theme without theme-key juggling.
  *
- *   architect    Anthropic   ❋ orange
- *   executor     Anthropic   ❋ orange
+ *   architect    Anthropic   ❋ yellow
+ *   executor     Anthropic   ❋ yellow
  *   implementer  DeepSeek    ◆ cyan
  *   skeptic      Google      ✦ blue
  *   synthesizer  Google      ✦ blue
  *   critic       OpenAI      ◯ green
+ *   tester       Alibaba     ▲ red
  *
  * Returns null for any agentType outside the council set so non-council
  * sub-agents (Explore, Plan, general-purpose) render unchanged.
@@ -34,6 +35,7 @@ const COUNCIL_ROLE_TO_VENDOR: Record<string, VendorBadge> = {
   skeptic:     { glyph: '✦', color: 'blue',   label: 'Google'    },
   synthesizer: { glyph: '✦', color: 'blue',   label: 'Google'    },
   critic:      { glyph: '◯', color: 'green',  label: 'OpenAI'    },
+  tester:      { glyph: '▲', color: 'red',    label: 'Alibaba'   },
 }
 
 export function getCouncilVendorBadge(agentType: string): VendorBadge | null {

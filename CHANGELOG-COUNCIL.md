@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Tester seat added (5th member, Qwen3.6-Plus)
+
+Council expands from four voices to five with a new **Tester** role focused on test coverage and edge cases. Distinct from the Skeptic (who flags what could break) — the Tester ensures we have tests that *catch* those breaks. Enumerates concrete cases per proposal (boundary values, NaN inputs, empty / max-length / unicode edges) and aligns with existing repo test conventions.
+
+- New: `src/tools/AgentTool/built-in/council/testerAgent.ts` (qwen3.6-plus, color: red, read-only tools)
+- New: `TESTER_PROMPT` in `src/tools/AgentTool/built-in/council/prompts.ts`
+- Updated: all four existing role prompts now reference "five-member council" / "four other council members"
+- Updated: `SYNTHESIZER_PROMPT` reads five proposals, consensus threshold lifted to ≥4 (strong majority)
+- Updated: `COUNCIL_COORDINATOR_PROMPT` — Step 1 spawns 5 members in parallel, role table includes Tester (qwen3.6-plus), Step 3 and Step 5 reference five reports, Hard Rules updated
+- Updated: `getCouncilAgents()` in `src/coordinator/council/councilMode.ts` returns 7 agents (5 voices + synthesizer + executor)
+- Updated: `CouncilRole` type in `councilOrchestrator.ts` extended with `'tester'`
+- Updated: `vendorBadge.ts` — `tester: { glyph: '▲', color: 'red', label: 'Alibaba' }`
+- Updated: `~/.openclaude/settings.json` — `agentModels["qwen3.6-plus"]` (DashScope international endpoint), `agentRouting.tester = "qwen3.6-plus"`
+- Updated: `COUNCIL.md`, `HANDOFF.md`, `README.md` for the count + new model in the table
+
+Revision quorum stays at **≥2 blocks** — feels right as a signal across 5 voices.
+
 ### Critic model: gpt-5.5 → gpt-4.1-mini
 
 First successful council fan-out surfaced an OpenAI API error: `Function tools with reasoning_effort are not supported for gpt-5.5 in /v1/chat/completions. Please use /v1/responses instead.` The `agentModels` schema only exposes `base_url` + `api_key` (no transport / endpoint-format switch), so the routed call always goes to `/v1/chat/completions`. Swapped the critic to `gpt-4.1-mini` — newer-gen, function-tool-friendly on chat completions, and ~the same price tier. Updated `criticAgent.ts:model`, the role table in `prompts.ts`, `~/.openclaude/settings.json` agentModels + agentRouting, and the model references in `COUNCIL.md` / `HANDOFF.md`.

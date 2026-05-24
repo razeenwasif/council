@@ -34,6 +34,7 @@ export type CouncilRole =
   | 'implementer'
   | 'skeptic'
   | 'critic'
+  | 'tester'
 
 export type ReviewVerdict = 'pass' | 'nit' | 'concern' | 'block'
 

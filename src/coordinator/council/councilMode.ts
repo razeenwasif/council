@@ -6,6 +6,7 @@ import { SKEPTIC_AGENT } from '../../tools/AgentTool/built-in/council/skepticAge
 import { CRITIC_AGENT } from '../../tools/AgentTool/built-in/council/criticAgent.js'
 import { SYNTHESIZER_AGENT } from '../../tools/AgentTool/built-in/council/synthesizerAgent.js'
 import { EXECUTOR_AGENT } from '../../tools/AgentTool/built-in/council/executorAgent.js'
+import { TESTER_AGENT } from '../../tools/AgentTool/built-in/council/testerAgent.js'
 import type { BuiltInAgentDefinition } from '../../tools/AgentTool/loadAgentsDir.js'
 
 // Council mode rides on top of coordinator mode. The coordinator infrastructure
@@ -27,6 +28,7 @@ export function getCouncilAgents(): BuiltInAgentDefinition[] {
     IMPLEMENTER_AGENT,
     SKEPTIC_AGENT,
     CRITIC_AGENT,
+    TESTER_AGENT,
     SYNTHESIZER_AGENT,
     EXECUTOR_AGENT,
   ]

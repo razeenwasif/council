@@ -1,8 +1,8 @@
 # Council
 
-A four-member AI council (Architect, Implementer, Skeptic, Critic) with a Synthesizer and Executor, layered on top of [OpenClaude](https://github.com/Gitlawb/openclaude)'s coordinator mode.
+A five-member AI council (Architect, Implementer, Skeptic, Critic, Tester) with a Synthesizer and Executor, layered on top of [OpenClaude](https://github.com/Gitlawb/openclaude)'s coordinator mode.
 
-When you submit a substantive prompt, four agents — each a different model running a different role lens — produce structured proposals in parallel. A cheap synthesizer reduces them to one plan. A single executor (the only role with filesystem access) writes the actual diff. The four members then re-read the diff and vote. Two or more `block` verdicts trigger one revision pass.
+When you submit a substantive prompt, five agents — each a different model running a different role lens — produce structured proposals in parallel. A cheap synthesizer reduces them to one plan. A single executor (the only role with filesystem access) writes the actual diff. The five members then re-read the diff and vote. Two or more `block` verdicts trigger one revision pass.
 
 See **[COUNCIL.md](COUNCIL.md)** for the use guide, **[HANDOFF.md](HANDOFF.md)** for the current state of the scaffold, and **[BACKLOG.md](BACKLOG.md)** for what's not yet built.
 

@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fix: agentRouting was in the wrong config file
+
+`agentRouting` and `agentModels` were being written to `~/.openclaude.json` (the user-state file), but the `SettingsJson` schema reads them from `~/.openclaude/settings.json`. `resolveAgentProvider` saw `settings.agentRouting === undefined`, returned null, and every council sub-agent fell back to the global Anthropic OAuth provider — explaining why `/stats` showed 100% Opus 4.7 even though DeepSeek / Gemini / OpenAI were configured.
+
+Migrated the fields to the correct file. Updated `COUNCIL.md`, `README.md`, and `HANDOFF.md` to point readers at `~/.openclaude/settings.json`.
+
 ### Banner redesign — logo mark, thicker wordmark, aurora palette, inline labels
 
 Full visual reset of the startup banner to remove the OpenClaude / Claude Code resemblance.

@@ -146,7 +146,7 @@ Everything below the line "Coordinator LLM follows COUNCIL_COORDINATOR_PROMPT" i
 - `AgentTool` for spawning workers
 - `SendMessageTool` for continuing workers
 - The task-notification XML message flow
-- `agentRouting` config in `~/.openclaude.json`
+- `agentRouting` config in `~/.openclaude/settings.json` (NOT `~/.openclaude.json` — distinct files; the schema lives in `SettingsJson` which `getSettings_DEPRECATED()` reads from `~/.openclaude/settings.json`)
 - Ink/Yoga TUI for the existing stacked agent panel
 
 If upstream openclaude changes any of those primitives, the council will need to adapt. The integration surface is intentionally narrow — three functions overridden (`getCoordinatorAgents`, `getCoordinatorSystemPrompt`, plus `isCouncilMode` as the activation gate) and two slash commands added. That's all the council is, structurally.

@@ -62,7 +62,7 @@ You'll see four members spawn in parallel, then synthesis, then execution, then 
 | Synthesizer | `gemini-3.5-flash` | unify the four proposals | None |
 | Executor | `claude-opus-4-7` | execute the plan, write the diff | Full (Bash, Edit, Write) |
 
-Override any binding per-role in `~/.openclaude.json`:
+Override any binding per-role in `~/.openclaude/settings.json`:
 
 ```json
 {
@@ -110,7 +110,7 @@ Solo mode skips all but the executor, so simple prompts cost the same as standar
 Council mode isn't on. Run `/council on` first.
 
 **"Model 'deepseek-v4' is not registered"**
-The model ID in the agent definition doesn't match what your provider registry knows. Edit `src/tools/AgentTool/built-in/council/implementerAgent.ts` to use a registered ID, or set up provider routing in `~/.openclaude.json`.
+The model ID in the agent definition doesn't match what your provider registry knows. Edit `src/tools/AgentTool/built-in/council/implementerAgent.ts` to use a registered ID, or set up provider routing in `~/.openclaude/settings.json`.
 
 **Council convenes but only 3 members report**
 v1 stops on member failure — by design, three voices isn't enough. Check the failed member's task notification for the error (usually an API/auth issue with the bound provider).

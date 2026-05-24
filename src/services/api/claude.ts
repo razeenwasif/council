@@ -2278,12 +2278,25 @@ async function* queryModel(
               lastMsg.message.stop_reason = stopReason
             }
 
-            // Update cost
+            // Update cost. When a sub-agent uses a providerOverride
+            // (e.g. council Implementer routed to deepseek-chat), the
+            // API request actually went to that provider's endpoint —
+            // attribute the model name to it instead of to the parent
+            // main-loop model. Without this, /spend's per-model
+            // breakdown shows every shim-provider call bucketed under
+            // claude-opus-4-7. Cost math still uses resolvedModel
+            // (which is options.model) because the openclaude pricing
+            // table doesn't have entries for shim provider models —
+            // honestly attributing to the shim model with $0 would
+            // hide real spend, so we keep the opus-rate cost and tag
+            // it to the actual model name for visibility.
+            const attributionModel =
+              options.providerOverride?.model ?? options.model
             const costUSDForPart = calculateUSDCost(resolvedModel, usage)
             costUSD += addToTotalSessionCost(
               costUSDForPart,
               usage,
-              options.model,
+              attributionModel,
             )
 
             const refusalMessage = getErrorMessageIfRefusal(
@@ -2851,10 +2864,14 @@ async function* queryModel(
       usage = updateUsage(EMPTY_USAGE, fallbackUsage)
       stopReason = fallbackMessage.message.stop_reason
       const fallbackCost = calculateUSDCost(resolvedModel, fallbackUsage)
+      // Same providerOverride attribution as the streaming path above —
+      // sub-agent API calls land under their actual provider model.
+      const attributionModel =
+        options.providerOverride?.model ?? options.model
       costUSD += addToTotalSessionCost(
         fallbackCost,
         fallbackUsage,
-        options.model,
+        attributionModel,
       )
     }
   }

@@ -3574,6 +3574,11 @@ export function REPL({
     // runCouncilFromToolContext instead of the LLM-coordinator path. The
     // hook returns true iff it handled the prompt; false (the default for
     // every non-council case) lets handlePromptSubmit run as usual.
+    //
+    // When intercepted, force-end the queryGuard so the loading spinner
+    // ("Meandering…") clears — handlePromptSubmit normally calls
+    // queryGuard.end() at the end of its work, but the deterministic
+    // path bypasses that. forceEnd is idempotent / safe when not active.
     if (process.env.COUNCIL_DETERMINISTIC === '1') {
       const { maybeInterceptCouncilPrompt } = await import(
         '../coordinator/council/maybeInterceptCouncilPrompt.js'
@@ -3583,7 +3588,10 @@ export function REPL({
         getToolUseContext,
         setMessages,
       });
-      if (intercepted) return;
+      if (intercepted) {
+        queryGuard.forceEnd();
+        return;
+      }
     }
 
     await handlePromptSubmit({

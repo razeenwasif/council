@@ -39,7 +39,7 @@ export const call: LocalCommandCall = async args => {
       return {
         type: 'text',
         value:
-          'Router: llm (classifier). Note: classifier API call is stubbed in v1 — falls back to heuristic until wired.',
+          'Router: llm (classifier). One gemini-3.5-flash call per prompt decides solo vs council; falls back to heuristic on any failure (timeout, network, ambiguous output, missing settings).',
       }
 
     case 'solo': {

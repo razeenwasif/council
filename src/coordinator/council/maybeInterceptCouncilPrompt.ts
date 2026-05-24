@@ -30,9 +30,13 @@ import { routePrompt } from './router/strategy.js'
 import {
   CouncilCostCeilingError,
   CouncilMemberFailureError,
+  CouncilQuorumLostError,
   CouncilTimeoutError,
 } from './councilOrchestrator.js'
-import { runCouncilFromToolContext } from './councilSpawn.js'
+import {
+  AgentAuthFailureError,
+  runCouncilFromToolContext,
+} from './councilSpawn.js'
 
 export interface MaybeInterceptInputs {
   input: string
@@ -78,11 +82,21 @@ export async function maybeInterceptCouncilPrompt(
       userPrompt: opts.input,
       toolUseContext,
       canUseTool: opts.canUseTool,
-      // emitStatus could push interim messages into the transcript; for
-      // now we keep them out so the final assistant message is the only
-      // visible artifact. The AgentTool agent panel will show live
-      // progress per voice independently.
-      emitStatus: () => {},
+      // Push each status update into the transcript as its own assistant
+      // message — gives the user live, line-by-line feedback as stages
+      // transition and individual voices land, instead of one final
+      // dump after everything completes.
+      emitStatus: msg =>
+        opts.setMessages(prev => [
+          ...prev,
+          createAssistantMessage({ content: msg }),
+        ]),
+      // Threading setMessages here enables the adapter's panel hooks —
+      // synthetic `tool_use` placeholder messages get injected (one per
+      // spawn, grouped by a shared `message.id`) so the multi-agent panel
+      // renderer paints the `7 agents finished` tree the same way it does
+      // in the LLM-coordinator path.
+      setMessages: opts.setMessages,
     })
 
     opts.setMessages(prev => [
@@ -109,6 +123,7 @@ export function formatCouncilResult(result: {
   execution: { summary: string }
   reviews: Array<{ role: string; verdict: string; findings: string[] }>
   revised?: { summary: string }
+  failures?: Array<{ role: string; stage: string; reason: string; isTimeout: boolean }>
   totalCostUsd: number
   totalDurationMs: number
 }): string {
@@ -121,10 +136,20 @@ export function formatCouncilResult(result: {
     .map(v => `${verdictTally[v]} ${v}`)
     .join(' · ')
 
+  const failures = result.failures ?? []
+
   const lines: string[] = []
   lines.push(
     `**Council finished** — ${result.proposals.length} proposals, ${tallyStr}.`,
   )
+  if (failures.length > 0) {
+    const failSummary = failures
+      .map(f => `${f.role} (${f.stage}, ${f.isTimeout ? 'timeout' : 'error'})`)
+      .join(', ')
+    lines.push(
+      `⚠ ${failures.length} voice${failures.length === 1 ? '' : 's'} failed: ${failSummary}. Run continued with the remaining majority.`,
+    )
+  }
   lines.push(
     `Duration: ${(result.totalDurationMs / 1000).toFixed(1)}s · Reported cost: $${result.totalCostUsd.toFixed(4)} (real cost in \`/stats\`).`,
   )
@@ -140,6 +165,32 @@ export function formatCouncilResult(result: {
 }
 
 export function formatCouncilError(err: unknown): string {
+  // Auth failures can land directly OR wrapped inside CouncilMemberFailureError
+  // (depending on which stage they hit). Surface them with a clear
+  // remediation hint before falling through to the generic handlers.
+  const authErr = extractAuthFailure(err)
+  if (authErr) {
+    return (
+      `**Authentication failure** during council ${describeStage(err)}. ` +
+      `Agent: **${authErr.subagentType}**.\n\n` +
+      `Run **\`/login\`** in a standard openclaude session to refresh the ` +
+      `OAuth token, then retry. (claude-opus-4-7 is the global Anthropic ` +
+      `OAuth provider — when it 401s, both the Architect proposal and the ` +
+      `Executor diff fail, so the whole pipeline aborts rather than ` +
+      `producing a non-existent diff for the reviewers to debate.)`
+    )
+  }
+
+  if (err instanceof CouncilQuorumLostError) {
+    const failSummary = err.failures
+      .map(f => `${f.role} (${f.stage}, ${f.isTimeout ? 'timeout' : 'error'})`)
+      .join(', ')
+    return (
+      `**Council quorum lost** — only ${err.succeededCount} of ${err.required} required voices succeeded at stage **${err.stage}**. ` +
+      `Failed: ${failSummary}.\n\n` +
+      `The council needs ≥${err.required} voices to reach consensus. Likely causes: a provider is down (check Anthropic/DeepSeek/Mistral status), rate limiting, or an expired credential — run \`/login\` if claude-opus-4-7 was among the failures.`
+    )
+  }
   if (err instanceof CouncilTimeoutError) {
     return `Council timed out at stage **${err.stage}**${err.role ? ` (${err.role})` : ''} after ${err.timeoutMs}ms.`
   }
@@ -154,4 +205,21 @@ export function formatCouncilError(err: unknown): string {
     return `Council member **${err.role}** failed during **${err.stage}**: ${inner}`
   }
   return `Council run failed: ${err instanceof Error ? err.message : String(err)}`
+}
+
+/** Walk a CouncilMemberFailureError chain and return the inner
+ *  AgentAuthFailureError if there is one. */
+function extractAuthFailure(err: unknown): AgentAuthFailureError | null {
+  if (err instanceof AgentAuthFailureError) return err
+  if (err instanceof CouncilMemberFailureError) {
+    if (err.underlying instanceof AgentAuthFailureError) return err.underlying
+  }
+  return null
+}
+
+function describeStage(err: unknown): string {
+  if (err instanceof CouncilMemberFailureError) return `${err.stage} (${err.role})`
+  if (err instanceof CouncilTimeoutError)
+    return `${err.stage}${err.role ? ` (${err.role})` : ''}`
+  return 'execution'
 }

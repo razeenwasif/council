@@ -63,3 +63,7 @@ Right now ≥3 blocks (out of 7) triggers revision. Could weight by role (Skepti
 
 ### Council mode for read-only queries
 Currently council is overkill for explanations. But "explain this codebase" could benefit from a debate-style council where each member gives a different framing. Different prompt set, different default tools — needs design.
+
+### Fix '0 tokens' shown for models
+
+### add a way to view total usage diagrams for all models and money spend perhaps

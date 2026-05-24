@@ -36,8 +36,11 @@
 
 import { randomUUID } from 'crypto'
 import { AgentTool } from '../../tools/AgentTool/AgentTool.js'
+import { AGENT_TOOL_NAME } from '../../tools/AgentTool/constants.js'
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
 import type { ToolUseContext } from '../../Tool.js'
+import type { Message } from '../../types/message.js'
+import { createProgressMessage, SYNTHETIC_MODEL } from '../../utils/messages.js'
 import { getSettings_DEPRECATED } from '../../utils/settings/settings.js'
 import {
   COUNCIL_ROLES,
@@ -53,6 +56,12 @@ import {
   type SynthesizedPlan,
 } from './councilOrchestrator.js'
 
+/** What the caller hands us for transcript injection. We use it to push
+ *  synthetic `tool_use` assistant messages (one per spawn, grouped by a
+ *  shared `message.id`) so the grouped-tool-use renderer paints the panel
+ *  the same way it does for the LLM-coordinator path. */
+export type SetMessagesFn = (updater: (prev: Message[]) => Message[]) => void
+
 // ──────────────────────────────────────────────────────────────────────
 // Public wrapper — what callers should reach for
 // ──────────────────────────────────────────────────────────────────────
@@ -62,9 +71,106 @@ export interface RunCouncilFromContextOptions {
   toolUseContext: ToolUseContext
   canUseTool?: CanUseToolFn
   emitStatus?: (msg: string) => void
+  /** When provided, the adapter injects grouped `tool_use` placeholder
+   *  messages so the multi-agent panel renders (the `7 agents finished`
+   *  tree). Without it, the deterministic path still works — it just
+   *  doesn't render the panel. */
+  setMessages?: SetMessagesFn
   costCeilingUsd?: number
   memberTimeoutMs?: number
   longTimeoutMs?: number
+}
+
+/**
+ * Run a single council agent (typically the executor) one-shot — no
+ * propose/synthesize/review pipeline, no orchestrator. Useful for slash
+ * commands like `/handoff` that want one agent to do one thing with
+ * full filesystem access. Pipes progress + result through the same
+ * panel injection as the council path when `setMessages` is provided.
+ *
+ * Returns the raw text the agent emitted as its final output. Throws
+ * with a labelled error on agent failure or abort.
+ */
+export interface RunSingleAgentOptions {
+  subagent_type: string
+  description: string
+  prompt: string
+  toolUseContext: ToolUseContext
+  canUseTool?: CanUseToolFn
+  setMessages?: SetMessagesFn
+  signal?: AbortSignal
+}
+
+export async function runSingleAgentFromToolContext(
+  opts: RunSingleAgentOptions,
+): Promise<InvokeAgentToolResult> {
+  // Optional panel injection — same shape as the council's `prepareSingle`
+  // hook. We allocate a tool_use_id and inject a placeholder so the
+  // grouped-tool-use renderer paints a row for the live spawn.
+  let parentToolUseId: string | undefined
+  if (opts.setMessages) {
+    parentToolUseId = randomUUID()
+    const messageId = randomUUID()
+    const setMessages = opts.setMessages
+    setMessages(prev => [
+      ...prev,
+      buildAgentToolUsePlaceholder({
+        messageId,
+        toolUseId: parentToolUseId!,
+        subagent_type: opts.subagent_type,
+        description: opts.description,
+        prompt: opts.prompt,
+      }),
+    ])
+  }
+
+  // Use the caller's signal if given; otherwise a no-op AbortController.
+  // (invokeAgentTool requires a signal to wire its abort race; passing one
+  // that never fires is the right "no cancellation" semantics.)
+  const ac = new AbortController()
+  if (opts.signal) {
+    if (opts.signal.aborted) ac.abort()
+    else opts.signal.addEventListener('abort', () => ac.abort(), { once: true })
+  }
+
+  try {
+    const result = await invokeAgentTool({
+      subagent_type: opts.subagent_type,
+      description: opts.description,
+      prompt: opts.prompt,
+      toolUseContext: applyToolUseIdOverride(opts.toolUseContext, parentToolUseId),
+      canUseTool: opts.canUseTool,
+      signal: ac.signal,
+      parentToolUseId,
+      setMessages: opts.setMessages,
+    })
+
+    if (opts.setMessages && parentToolUseId) {
+      const setMessages = opts.setMessages
+      setMessages(prev => [
+        ...prev,
+        buildAgentToolResultMessage({
+          toolUseId: parentToolUseId!,
+          status: 'success',
+          summary: result.text,
+        }),
+      ])
+    }
+    return result
+  } catch (err) {
+    if (opts.setMessages && parentToolUseId) {
+      const setMessages = opts.setMessages
+      setMessages(prev => [
+        ...prev,
+        buildAgentToolResultMessage({
+          toolUseId: parentToolUseId!,
+          status: 'error',
+          summary: err instanceof Error ? err.message : String(err),
+        }),
+      ])
+    }
+    throw err
+  }
 }
 
 /**
@@ -78,6 +184,7 @@ export async function runCouncilFromToolContext(
   const adapters = buildCouncilAdapters({
     toolUseContext: opts.toolUseContext,
     canUseTool: opts.canUseTool,
+    setMessages: opts.setMessages,
   })
 
   return runCouncil({
@@ -97,51 +204,275 @@ export async function runCouncilFromToolContext(
 export interface BuildCouncilAdaptersInputs {
   toolUseContext: ToolUseContext
   canUseTool?: CanUseToolFn
+  /** When provided, the panel hooks (`prepareBatch`, `prepareSingle`,
+   *  `completeMember`) are wired and inject grouped `tool_use` /
+   *  `tool_result` messages into the transcript. Without it, those hooks
+   *  are omitted entirely and `runCouncil` runs headless. */
+  setMessages?: SetMessagesFn
 }
 
 /**
- * Construct the four spawn callbacks runCouncil expects, each backed by
- * an `AgentTool.call()` invocation with the right subagent_type.
+ * Construct the spawn + panel callbacks runCouncil expects, each backed
+ * by an `AgentTool.call()` invocation with the right subagent_type.
  */
 export function buildCouncilAdapters(
   inputs: BuildCouncilAdaptersInputs,
 ): CouncilAdapters {
   return {
-    spawnProposal: async ({ role, userPrompt, signal }) =>
+    spawnProposal: async ({ role, userPrompt, toolUseId, signal }) =>
       proposalFromAgentTool({
         role,
         userPrompt,
+        toolUseId,
         signal,
-        ...inputs,
+        toolUseContext: inputs.toolUseContext,
+        canUseTool: inputs.canUseTool,
+        setMessages: inputs.setMessages,
       }),
 
-    spawnSynthesizer: async ({ userPrompt, proposals, signal }) =>
+    spawnSynthesizer: async ({ userPrompt, proposals, toolUseId, signal }) =>
       synthesizerFromAgentTool({
         userPrompt,
         proposals,
+        toolUseId,
         signal,
-        ...inputs,
+        toolUseContext: inputs.toolUseContext,
+        canUseTool: inputs.canUseTool,
+        setMessages: inputs.setMessages,
       }),
 
-    spawnExecutor: async ({ userPrompt, plan, revisionContext, signal }) =>
+    spawnExecutor: async ({ userPrompt, plan, revisionContext, toolUseId, signal }) =>
       executorFromAgentTool({
         userPrompt,
         plan,
         revisionContext,
+        toolUseId,
         signal,
-        ...inputs,
+        toolUseContext: inputs.toolUseContext,
+        canUseTool: inputs.canUseTool,
+        setMessages: inputs.setMessages,
       }),
 
-    spawnReview: async ({ role, userPrompt, proposal, execution, signal }) =>
+    spawnReview: async ({ role, userPrompt, proposal, execution, toolUseId, signal }) =>
       reviewFromAgentTool({
         role,
         userPrompt,
         proposal,
         execution,
+        toolUseId,
         signal,
-        ...inputs,
+        toolUseContext: inputs.toolUseContext,
+        canUseTool: inputs.canUseTool,
+        setMessages: inputs.setMessages,
       }),
+
+    // Panel hooks — only wired when caller supplied setMessages.
+    ...(inputs.setMessages
+      ? buildPanelHooks(inputs.setMessages)
+      : {}),
   }
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Panel hooks — synthesize the messages the grouped renderer expects
+// ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Build the optional `prepareBatch` / `prepareSingle` / `completeMember`
+ * hooks that inject the grouped tool_use placeholder messages. Pulling
+ * the logic out keeps the adapter factory readable.
+ */
+function buildPanelHooks(
+  setMessages: SetMessagesFn,
+): Pick<CouncilAdapters, 'prepareBatch' | 'prepareSingle' | 'completeMember'> {
+  return {
+    prepareBatch: async ({ kind, roles }) => {
+      const messageId = randomUUID()
+      const map = new Map<CouncilRole, string>()
+      const placeholders: Message[] = []
+      for (const role of roles) {
+        const toolUseId = randomUUID()
+        map.set(role, toolUseId)
+        placeholders.push(
+          buildAgentToolUsePlaceholder({
+            messageId,
+            toolUseId,
+            subagent_type: role,
+            description:
+              kind === 'proposal'
+                ? `${capitalize(role)} proposal`
+                : `${capitalize(role)} review`,
+            prompt: `Council ${kind} for ${role}`,
+          }),
+        )
+      }
+      setMessages(prev => [...prev, ...placeholders])
+      return map
+    },
+
+    prepareSingle: async ({ kind, description }) => {
+      const messageId = randomUUID()
+      const toolUseId = randomUUID()
+      const subagent_type =
+        kind === 'synthesizer' ? 'synthesizer' : 'executor'
+      setMessages(prev => [
+        ...prev,
+        buildAgentToolUsePlaceholder({
+          messageId,
+          toolUseId,
+          subagent_type,
+          description,
+          prompt: `Council ${kind}`,
+        }),
+      ])
+      return toolUseId
+    },
+
+    completeMember: async ({ toolUseId, status, summary }) => {
+      setMessages(prev => [
+        ...prev,
+        buildAgentToolResultMessage({
+          toolUseId,
+          status,
+          summary: summary ?? '',
+        }),
+      ])
+    },
+  }
+}
+
+/**
+ * Synthesize an assistant message containing a single `tool_use` block
+ * for the AgentTool. Shared `messageId` across siblings is what triggers
+ * the grouped-rendering path (see `applyGrouping` in `utils/groupToolUses.ts`
+ * — it keys groups by `messageId:toolName` and only groups when ≥2 are
+ * present in the same message).
+ */
+function buildAgentToolUsePlaceholder(opts: {
+  messageId: string
+  toolUseId: string
+  subagent_type: string
+  description: string
+  prompt: string
+}): Message {
+  return {
+    type: 'assistant',
+    uuid: randomUUID(),
+    timestamp: new Date().toISOString(),
+    message: {
+      id: opts.messageId,
+      container: null,
+      model: SYNTHETIC_MODEL,
+      role: 'assistant',
+      stop_reason: 'tool_use',
+      stop_sequence: '',
+      type: 'message',
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+        server_tool_use: { web_search_requests: 0, web_fetch_requests: 0 },
+        service_tier: null,
+        cache_creation: {
+          ephemeral_1h_input_tokens: 0,
+          ephemeral_5m_input_tokens: 0,
+        },
+        inference_geo: null,
+        iterations: null,
+        speed: null,
+      },
+      content: [
+        {
+          type: 'tool_use',
+          id: opts.toolUseId,
+          name: AGENT_TOOL_NAME,
+          input: {
+            subagent_type: opts.subagent_type,
+            description: opts.description,
+            prompt: opts.prompt,
+          },
+        },
+      ],
+      context_management: null,
+    },
+    requestId: undefined,
+    isVirtual: true,
+  } as unknown as Message
+}
+
+/**
+ * Synthesize a user message containing a `tool_result` block that matches
+ * a previously-injected `tool_use`. This is what flips the grouped
+ * renderer's `isResolved` / `isError` flags for each agent cell.
+ */
+function buildAgentToolResultMessage(opts: {
+  toolUseId: string
+  status: 'success' | 'error'
+  summary: string
+}): Message {
+  const summaryText = opts.summary.slice(0, 4000) // bound so a huge proposal doesn't blow context
+  return {
+    type: 'user',
+    uuid: randomUUID(),
+    timestamp: new Date().toISOString(),
+    message: {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: opts.toolUseId,
+          is_error: opts.status === 'error',
+          content: summaryText,
+        },
+      ],
+    },
+    isMeta: true,
+  } as unknown as Message
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Role → model resolution
+// ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Fallback model IDs per role — mirrors the defaults documented in COUNCIL.md
+ * and the table in `commands/council/council.ts`. Used only when settings.json
+ * has no `agentRouting[role]` binding. Kept here (not imported from the
+ * /council command) to avoid pulling the slash-command surface into the
+ * orchestrator adapter.
+ */
+const FALLBACK_ROLE_MODEL: Record<string, string> = {
+  architect: 'claude-opus-4-7',
+  implementer: 'deepseek-chat',
+  skeptic: 'gemini-3.5-flash',
+  critic: 'gpt-4.1-mini',
+  tester: 'qwen3.6-plus',
+  security: 'mistral-large-latest',
+  performance: 'mistral-medium-latest',
+  synthesizer: 'gemini-3.5-flash',
+  executor: 'claude-opus-4-7',
+}
+
+/**
+ * Resolve the model ID a given role is actually routed to. Read from
+ * settings.agentRouting first (the live binding), fall back to the
+ * documented defaults, then to the role name itself if neither matches.
+ *
+ * Exported so the orchestrator's formatters can surface the model in
+ * preview lines like `▎ Critic (gpt-4.1-mini): <headline>`.
+ */
+export function resolveRoleModel(role: string): string {
+  try {
+    const settings = getSettings_DEPRECATED() as
+      | { agentRouting?: Record<string, string> }
+      | undefined
+    const routed = settings?.agentRouting?.[role]
+    if (typeof routed === 'string' && routed.length > 0) return routed
+  } catch {
+    // settings unavailable — fall through to the static map.
+  }
+  return FALLBACK_ROLE_MODEL[role] ?? role
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -152,6 +483,16 @@ interface CommonSpawnDeps {
   toolUseContext: ToolUseContext
   canUseTool?: CanUseToolFn
   signal: AbortSignal
+  /** When set (via the panel hooks), AgentTool's `toolUseContext.toolUseId`
+   *  is overridden so its progress messages route to the matching cell. */
+  toolUseId?: string
+  /** Optional transcript injector. When both this AND `toolUseId` are set,
+   *  AgentTool's internal progress events are wrapped via
+   *  `createProgressMessage` (parentToolUseID = our `toolUseId`) and pushed
+   *  into the transcript — which is what populates the panel's per-cell
+   *  tool counts / token totals / "thinking" preview lines. Without this,
+   *  the panel renders but cells stay at "0 tool uses · 0 tokens." */
+  setMessages?: SetMessagesFn
 }
 
 async function proposalFromAgentTool(
@@ -162,14 +503,16 @@ async function proposalFromAgentTool(
     subagent_type: args.role,
     description: `${capitalize(args.role)} proposal`,
     prompt: `You are one of seven council members. Produce your structured proposal for this request.\n\n${args.userPrompt}`,
-    toolUseContext: args.toolUseContext,
+    toolUseContext: applyToolUseIdOverride(args.toolUseContext, args.toolUseId),
     canUseTool: args.canUseTool,
     signal: args.signal,
+    parentToolUseId: args.toolUseId,
+    setMessages: args.setMessages,
   })
 
   return {
     role: args.role,
-    modelId: args.role, // best we can know without surfacing the resolved model
+    modelId: resolveRoleModel(args.role),
     text: result.text,
     durationMs: Date.now() - start,
     inputTokens: result.inputTokens,
@@ -184,16 +527,22 @@ async function synthesizerFromAgentTool(
   const start = Date.now()
   const synthInput =
     `Original user request:\n${args.userPrompt}\n\n` +
-    `Five council proposals to reduce to one plan:\n\n` +
+    `${args.proposals.length} council proposals to reduce to one plan` +
+    (args.proposals.length < 7
+      ? ` (${7 - args.proposals.length} of 7 voices failed to deliver — proceed with the remaining majority)`
+      : '') +
+    `:\n\n` +
     formatProposalsForSynthesizer(args.proposals)
 
   const result = await invokeAgentTool({
     subagent_type: 'synthesizer',
     description: 'Synthesize council proposals',
     prompt: synthInput,
-    toolUseContext: args.toolUseContext,
+    toolUseContext: applyToolUseIdOverride(args.toolUseContext, args.toolUseId),
     canUseTool: args.canUseTool,
     signal: args.signal,
+    parentToolUseId: args.toolUseId,
+    setMessages: args.setMessages,
   })
 
   return {
@@ -224,9 +573,11 @@ async function executorFromAgentTool(
     subagent_type: 'executor',
     description: args.revisionContext ? 'Apply revision edits' : 'Execute council plan',
     prompt,
-    toolUseContext: args.toolUseContext,
+    toolUseContext: applyToolUseIdOverride(args.toolUseContext, args.toolUseId),
     canUseTool: args.canUseTool,
     signal: args.signal,
+    parentToolUseId: args.toolUseId,
+    setMessages: args.setMessages,
   })
 
   // The executor's "diff" is whatever it summarised at the end. The real
@@ -260,9 +611,11 @@ async function reviewFromAgentTool(
     subagent_type: args.role,
     description: `${capitalize(args.role)} review`,
     prompt: reviewInput,
-    toolUseContext: args.toolUseContext,
+    toolUseContext: applyToolUseIdOverride(args.toolUseContext, args.toolUseId),
     canUseTool: args.canUseTool,
     signal: args.signal,
+    parentToolUseId: args.toolUseId,
+    setMessages: args.setMessages,
   })
 
   const verdict = parseVerdict(result.text)
@@ -271,7 +624,7 @@ async function reviewFromAgentTool(
     role: args.role,
     verdict,
     findings: [result.text],
-    modelId: args.role,
+    modelId: resolveRoleModel(args.role),
     durationMs: Date.now() - start,
     costUsd: result.costUsd,
   }
@@ -288,9 +641,13 @@ interface InvokeAgentToolInputs {
   toolUseContext: ToolUseContext
   canUseTool?: CanUseToolFn
   signal: AbortSignal
+  /** Panel-allocated tool_use_id; used as `parentToolUseID` on every progress
+   *  message we forward into the transcript. */
+  parentToolUseId?: string
+  setMessages?: SetMessagesFn
 }
 
-interface InvokeAgentToolResult {
+export interface InvokeAgentToolResult {
   text: string
   inputTokens: number
   outputTokens: number
@@ -364,6 +721,30 @@ async function invokeAgentTool(
   // the underlying message — much easier to triage than a bare
   // "Cannot read properties of undefined" coming from deep inside the
   // openclaude internals.
+  // Build onProgress only when the caller wired both a setMessages hook AND
+  // a panel-allocated parentToolUseId. Without both, there's nothing for the
+  // progress messages to attach to (no panel cell). Matches the wrapping
+  // logic in `runToolUse` (services/tools/toolExecution.ts:540) — we wrap
+  // each event with the outer AgentTool call's tool_use_id as
+  // `parentToolUseID`, which is what `buildMessageLookups` keys
+  // progress-by-toolUseID lookups on.
+  const setMessages = args.setMessages
+  const parentToolUseId = args.parentToolUseId
+  const onProgress =
+    setMessages && parentToolUseId
+      ? (progress: { toolUseID: string; data: unknown }) => {
+          setMessages(prev => [
+            ...prev,
+            createProgressMessage({
+              toolUseID: progress.toolUseID,
+              parentToolUseID: parentToolUseId,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              data: progress.data as any,
+            }),
+          ])
+        }
+      : undefined
+
   const callPromise: Promise<unknown> = (async () => {
     try {
       return await AgentTool.call(
@@ -375,6 +756,8 @@ async function invokeAgentTool(
         patchedContext,
         stubCanUseTool,
         stubAssistantMessage,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        onProgress as any,
       )
     } catch (err) {
       const inner = err instanceof Error ? err.message : String(err)
@@ -441,6 +824,19 @@ async function invokeAgentTool(
       `AgentTool spawn for ${args.subagent_type} returned no text and no tool use to summarize. ` +
         `Result shape: ${shape}. Most likely the agent emitted only tool_uses and the AgentTool's text-fallback logic didn't surface earlier text content — paste this whole error for triage.`,
     )
+  }
+
+  // Auth-failure detection. When an underlying API call 401s (e.g. expired
+  // Anthropic OAuth token), the SDK surfaces the error AS the message text
+  // rather than throwing. Without this check the orchestrator would treat
+  // the error string as the agent's proposal/diff/review and silently
+  // continue — the live run that motivated this looked like a successful
+  // 7-voice debate over a non-existent diff. Throwing here turns it into a
+  // first-class failure that bubbles through the orchestrator's existing
+  // error handling (CouncilMemberFailureError for proposals/reviews;
+  // aborts the pipeline for executor/synthesizer).
+  if (looksLikeAuthFailure(text)) {
+    throw new AgentAuthFailureError(args.subagent_type, text)
   }
 
   const inputTokens = result.data.usage?.input_tokens ?? 0
@@ -511,6 +907,48 @@ export function extractResultText(data: AgentToolResultData): string {
 }
 
 /**
+ * Distinguished error class for upstream API auth failures (401, expired
+ * OAuth token, etc.) surfaced as a result-text rather than a thrown
+ * exception. Callers — orchestrator, /council run formatter, /handoff —
+ * can match on this to print a "run /login" hint instead of a generic
+ * "council member X failed" message.
+ */
+export class AgentAuthFailureError extends Error {
+  constructor(
+    public readonly subagentType: string,
+    public readonly originalText: string,
+  ) {
+    super(
+      `Agent "${subagentType}" hit an upstream API auth failure (likely 401). ` +
+        `Run /login in a normal council session to refresh the OAuth token. ` +
+        `Underlying error text: ${originalText.slice(0, 200)}${originalText.length > 200 ? '…' : ''}`,
+    )
+    this.name = 'AgentAuthFailureError'
+  }
+}
+
+/**
+ * Detect when an agent's "result text" is actually an upstream auth-failure
+ * message. The SDK doesn't always throw on 401 — sometimes the error
+ * surfaces as the message content. Patterns matched: explicit "401",
+ * "Please run /login", Anthropic's `authentication_error` JSON shape,
+ * and OpenAI/Mistral's "Incorrect API key" wording. Conservative — only
+ * fires on signals that are very unlikely to appear in a real proposal.
+ */
+export function looksLikeAuthFailure(text: string): boolean {
+  const t = text.toLowerCase()
+  return (
+    t.includes('please run /login') ||
+    t.includes('"type":"authentication_error"') ||
+    t.includes('authentication_error') ||
+    /\bapi error:\s*401\b/.test(t) ||
+    /\b401\b.*(unauthor|auth)/i.test(t) ||
+    t.includes('incorrect api key') ||
+    t.includes('invalid authentication credentials')
+  )
+}
+
+/**
  * If the agent finished with no final text (only tool_uses), synthesize a
  * brief summary so the orchestrator can keep going with a degraded
  * proposal rather than aborting the whole council. Mentions the tools
@@ -576,6 +1014,20 @@ const FALLBACK_MAIN_LOOP_MODEL = 'claude-opus-4-7'
  * signal — so when the orchestrator's per-member timeout fires, the
  * spawn's internal work aborts too.
  */
+/**
+ * If a panel-allocated `toolUseId` is provided, return a context whose
+ * `toolUseId` is overridden so AgentTool's progress messages route to the
+ * matching cell in the grouped agent panel. When undefined, the original
+ * context is returned unchanged.
+ */
+export function applyToolUseIdOverride(
+  ctx: ToolUseContext,
+  toolUseId: string | undefined,
+): ToolUseContext {
+  if (!toolUseId) return ctx
+  return { ...ctx, toolUseId }
+}
+
 export function ensureAbortController(
   ctx: ToolUseContext,
   parentSignal: AbortSignal,

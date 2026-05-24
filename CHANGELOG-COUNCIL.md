@@ -2,6 +2,100 @@
 
 ## [Unreleased]
 
+### Explicit `✓ Stage done` emits between solo stages
+
+Live test showed the user couldn't tell whether the council was still running or stuck after the executor finished — the executor's `tool_result` landed in the panel, then nothing for 5+ minutes while reviews ran. Added a clear stage-transition emit so the spinner is never silent for >a few seconds.
+
+- `src/coordinator/council/councilOrchestrator.ts` — new `formatStageDone(stage, durationMs, summary?)` helper. Emits `> ✓ **Synthesizer** done (12.5s) — Go with debounce in src/utils/council/debounce.ts.` after synthesizer success, `> ✓ **Executor** done (3m 3s) — Files created: ...` after executor success, `> ✓ **Revision** done (...)` after a revision pass. Snippet is the first non-empty non-heading line of the summary, capped at 140 chars; duration auto-formats to ms / s / "Xm Ys" based on magnitude.
+- Stage transitions are now: `Synthesizing.` → `✓ Synthesizer done.` → `Executing plan.` → `✓ Executor done.` → `Reviewing — N members on the diff.` → per-review previews → `Council finished.`
+
+Council test totals: **127 pass · 0 fail · 319 expects · ~788ms** (was 120/306). Added 7 new tests covering the helper (sub-minute / multi-minute formatting, ellipsis truncation, no-snippet fallback, all-headings fallback, revise label) and one integration test verifying the emit ordering (synth-done before exec-done before reviewing).
+
+### Fault-tolerant batches + 300s timeout + CouncilQuorumLostError
+
+The council was designed for redundancy — 7 voices so 1-2 dropping out shouldn't break anything — but the orchestrator was using `Promise.all`, which means a single member timeout killed the whole run. Made the proposal + review batches fault-tolerant so the council proceeds with whichever voices succeed and only aborts when too few do.
+
+- **`src/coordinator/council/councilOrchestrator.ts`**:
+  - Proposal batch + review batch switched from `Promise.all` → `Promise.allSettled`. Each per-member promise is fully self-contained — success path emits `▎ <Role>: <headline>` + flips its panel cell to resolved; failure path emits `> ✗ <Role> proposal: timed out after Xms` + flips the cell to error. The orchestrator aggregates the settlements into `proposals: Proposal[]` + `proposalFailures: CouncilFailure[]`.
+  - New `CouncilQuorumLostError` class — thrown when `<5` voices succeed in a batch (constant `MIN_VOICES_FOR_QUORUM = 5`, matching the `≥5/7` consensus threshold). Distinct from `CouncilMemberFailureError` (per-member) — this is "the council itself can't proceed."
+  - New `CouncilFailure` interface added to `CouncilResult.failures: CouncilFailure[]` so callers can surface "ran with 6 voices, security dropped out" instead of silently completing with a smaller council.
+  - New exported helpers `settlementToFailure()` (turns rejected settlements into structured failures, distinguishing `isTimeout`) and `formatMemberFailure()` (the `> ✗ <Role>: timed out / failed — <reason>` line).
+  - Review batch now iterates over **successful** proposals (not all `COUNCIL_ROLES`) — a voice can't review without its own proposal as context.
+  - `memberTimeoutMs` default bumped 180s → **300s**. Combined with fault tolerance, this is now the "voice is truly hung, give up and move on" ceiling, not "voice is slow."
+
+- **`src/coordinator/council/councilSpawn.ts`**: synthesizer input string now reads `"${proposals.length} council proposals to reduce to one plan"` (was hardcoded `"Five council proposals"` — stale from when council was 5 voices). When proposals < 7, appends `"(N of 7 voices failed to deliver — proceed with the remaining majority)"` so the synthesizer weights its consensus calculation correctly.
+
+- **Result + error formatters** in `maybeInterceptCouncilPrompt.ts` and `commands/council/council.ts` now:
+  - Surface `⚠ N voice(s) failed: <list>` in successful-but-partial result summaries.
+  - Format `CouncilQuorumLostError` with the failure list + remediation hint (`/login` for OAuth failures, "check provider status" for others).
+
+Council test totals: **120 pass · 0 fail · 306 expects · ~740ms** (was 108/256). Added 12 new tests covering: single-failure soft path (timeout + non-timeout, proposal + review), quorum-lost path (3 failures → CouncilQuorumLostError with failure list), review batch skips failed-proposal roles, ✗ status line emission, `failures: []` on happy path, `formatMemberFailure` + `settlementToFailure` helpers, and the `CouncilQuorumLostError` formatter output.
+
+### Model name restored in arrival previews + 180s member timeout
+
+- **Model ID now shows next to each role** in the live previews — matches the LLM-coordinator path's format. Previews used to read `▎ Critic: <headline>` (just the role); now they read `▎ Critic (gpt-4.1-mini): <headline>`. Implementation: new exported `resolveRoleModel(role)` helper in `councilSpawn.ts` that reads `settings.agentRouting[role]` first, then falls back to a hardcoded map mirroring COUNCIL.md defaults, then to the raw role slug. `proposalFromAgentTool` and `reviewFromAgentTool` now populate `Proposal.modelId` / `Review.modelId` with the resolved value (previously hardcoded to the role slug). `formatProposalArrival` and `formatReviewArrival` print `(model-id)` when modelId differs from the role slug, omitted otherwise so unresolved adapters don't print `(architect)` ad nauseam.
+- **`memberTimeoutMs` bumped 120s → 180s.** Implementer (deepseek-chat) timed out at 120s under load. Free-tier providers (DeepSeek, Gemini, Mistral) have tier-based queueing that can spike past 2 minutes during peak. 180s preserves the safety net for genuinely hung members without killing live ones.
+
+Council test totals: **108 pass · 0 fail · 256 expects · ~702ms** (was 104/234). Added 4 new tests: `resolveRoleModel` happy path + unknown-role fallback, plus updated 3 formatter tests to assert the `(model-id)` parenthetical (with one negative case asserting it's omitted when modelId == role slug).
+
+### Detect upstream API auth failures + remediation hint
+
+When an agent's underlying API call returns 401 (expired Anthropic OAuth token, rate-limit revocation, etc.), the SDK often surfaces the error as the message content rather than as a thrown exception. Without detection, the pipeline treated the error string as the agent's proposal/diff/review and silently continued — the live run that motivated this looked like a successful 7-voice debate over a non-existent diff that the executor never wrote.
+
+- `src/coordinator/council/councilSpawn.ts` — new `AgentAuthFailureError` class + `looksLikeAuthFailure(text)` helper. `invokeAgentTool` now checks the result text and throws the typed error when it matches the auth-failure signatures: `"Please run /login"`, Anthropic's `authentication_error` JSON shape, `"API Error: 401"`, OpenAI/Mistral's `"Incorrect API key"`, `"Invalid authentication credentials"`, and `\b401\b.*(unauthor|auth)`. Conservative — only fires on signals very unlikely to appear in a real proposal (the test suite covers two safe-prose negatives).
+- `src/coordinator/council/maybeInterceptCouncilPrompt.ts` — `formatCouncilError` checks for the auth failure both directly (synth/executor stages throw it raw) and wrapped inside `CouncilMemberFailureError` (proposal/review stages wrap it). Surfaces a "run /login" hint with the agent name and a note that claude-opus-4-7 backs both Architect and Executor, so a single token expiry kills both ends of the pipeline.
+- `src/commands/council/council.ts` + `src/commands/handoff/handoff.ts` — same auth-aware error handling so `/council run` and `/handoff` print the remediation hint instead of a stack tail.
+
+Council test totals: **104 pass · 0 fail · 234 expects · ~704ms** (was 94/216). Added 9 new tests: 7 for the detection helper (including two negative cases — "the endpoint may return a 401" / "the helper doesn't touch auth" — that must NOT trigger), 1 for the error class, 2 for the formatter handling both raw and wrapped shapes.
+
+**Known limitation**: the panel still shows "0 tokens" for non-Anthropic agents (DeepSeek, Gemini, OpenAI, Qwen, Mistral). This is a deeper provider-plumbing issue — `calculateAgentStats` at `src/tools/AgentTool/UI.tsx:639-644` reads `usage.input_tokens` / `usage.output_tokens` from BetaMessage shape, but non-Anthropic providers don't always populate those fields in the normalized message. Out of scope for this pass; tracked separately.
+
+### `/handoff` slash command
+
+Spawns the executor (claude-opus-4-7, full filesystem tools) one-shot with a prompt to update or create HANDOFF.md for the next session. Distinct from the council pipeline — no propose/synthesize/review, just one agent doing one thing.
+
+- `src/commands/handoff/handoff.ts` — the command implementation. Builds a prompt that asks the executor to audit existing state files (HANDOFF.md, BACKLOG.md, CHANGELOG-COUNCIL.md), recent git log, and any in-flight work, then rewrite HANDOFF.md so the next session can pick up cold. Optional argument appends extra context to focus the handoff.
+- `src/commands/handoff/index.ts` — command registration.
+- `src/commands.ts` — wired into the COMMANDS array.
+- `src/coordinator/council/councilSpawn.ts` — new exported helper `runSingleAgentFromToolContext` that runs a single council agent one-shot with the same panel injection / progress wiring as the full council pipeline. Reusable for any future one-off agent-driven slash command. Also exports `InvokeAgentToolResult` so callers can read cost/token totals from the result.
+
+Usage:
+```
+/handoff                           # let the executor decide what to record
+/handoff focus on the auth refactor we just did
+```
+
+### Panel tool-counts wired live + headline directive promoted to top of prompt + 60s→120s member timeout
+
+Three fixes from the first live run of the grouped-panel work:
+
+- **Panel cells stayed at "0 tool uses · 0 tokens"** even though agents were running. Root cause: my `invokeAgentTool` called `AgentTool.call()` without the 5th `onProgress` argument, so AgentTool's internal progress events (yielded at `AgentTool.tsx:1126-1138`) had nowhere to land. The LLM-coordinator path supplies this naturally through `runToolUse` in `services/tools/toolExecution.ts:540` which wraps each event via `createProgressMessage({ toolUseID, parentToolUseID, data })` — `parentToolUseID` is the key `buildMessageLookups` uses to populate `progressMessagesByToolUseID`. Replicated that wrapping inline in `councilSpawn.ts`: when both `setMessages` and a panel-allocated `parentToolUseId` are present, we build an onProgress callback that pushes each progress event into the transcript with the right `parentToolUseID`. The panel's `calculateAgentStats` (`UI.tsx:628`) then sees real tool counts + token totals + live thinking previews.
+- **Headline directive promoted to the top of every role prompt.** Architect (claude-opus-4-7), Security (mistral-large-latest), and Performance (mistral-medium-latest) all dropped the `## Headline` section despite the bolded directive in BASE_PROPOSAL_FORMAT. Pulled it out as a shared `HEADLINE_DIRECTIVE` constant and prepended it to all 7 role prompts so it sits at the very top of the system prompt — first thing the model sees, strongest instruction position. Spells out the failure mode ("the user sees a generic fallback") so the model treats it as load-bearing, not stylistic.
+- **`memberTimeoutMs` default bumped from 60s → 120s.** Skeptic (gemini-3.5-flash) timed out during the first live test of the panel work. Gemini Flash latency spikes are common; 60s was too aggressive for a long-tail member. 120s preserves the safety net while accommodating realistic worst-case proposal latency. The synthesizer/executor `longTimeoutMs` (5min) is untouched.
+
+### Grouped agent panel in the deterministic path + tighter headline compliance
+
+The `7 agents finished` agent panel (the collapsible tree showing per-voice tool counts and status) now renders in the deterministic path. Previously it only appeared in the LLM-coordinator path because the LLM emitted a real `tool_use` block to the transcript; the deterministic path called `AgentTool.call()` directly with no wrapper, so the grouped renderer had nothing to group.
+
+- `src/coordinator/council/councilOrchestrator.ts` — added optional adapter callbacks `prepareBatch`, `prepareSingle`, `completeMember` and a `toolUseId?` field on each spawn input. The orchestrator calls these around every stage so any adapter can inject UI placeholders; pure-data adapters (tests, headless) ignore them. All existing tests pass without changes — the contract is fully backward-compatible.
+- `src/coordinator/council/councilSpawn.ts` — implementing the panel hooks. `prepareBatch` synthesizes 7 assistant messages with a shared `message.id` and unique `tool_use.id`s (which is exactly what `applyGrouping` in `utils/groupToolUses.ts` looks for to trigger the grouped renderer). `prepareSingle` does the same for synthesizer/executor/revise stages. `completeMember` pushes matching `tool_result` user messages so each cell flips to `isResolved`. New `applyToolUseIdOverride()` helper patches `toolUseContext.toolUseId` per-spawn so AgentTool's internal progress messages route to the right cell.
+- `src/coordinator/council/maybeInterceptCouncilPrompt.ts` — passes `setMessages` through to `runCouncilFromToolContext` so the panel hooks get wired.
+- `src/tools/AgentTool/built-in/council/prompts.ts` — tightened the `## Headline` requirement in `BASE_PROPOSAL_FORMAT` with strict, leading instructions ("MUST begin with the literal heading `## Headline`...") to stop the Mistral models from dropping it. Previously Security and Performance frequently omitted the section, causing the live preview to fall back to a generic "no headline section emitted" line.
+
+Council test totals: **94 pass · 0 fail · 216 expects · ~666ms** (was 89/195). Added 5 new tests for the adapter hooks.
+
+### Live per-voice arrival pings — line-by-line streaming output
+
+The deterministic path's transcript output was a single big dump after all 7 voices finished; now each stage transition and each individual proposal / review lands in the transcript the moment it arrives.
+
+- `src/coordinator/council/maybeInterceptCouncilPrompt.ts` — replaced the no-op `emitStatus: () => {}` with a `setMessages` push, so every status string the orchestrator emits becomes its own assistant message in real time.
+- `src/coordinator/council/councilOrchestrator.ts` — added a side-effecting `.then` to each individual proposal- and review-promise (before the `.catch` wrapper) so users see `> **Architect**: ...` as the architect lands, not after all 7 finish. Added pure helpers `extractHeadline()`, `formatProposalArrival()`, `formatReviewArrival()` — exported and unit-tested.
+- `src/tools/AgentTool/built-in/council/prompts.ts` — added a mandatory `## Headline` section at the top of `BASE_PROPOSAL_FORMAT`. Each council member now leads with a one-sentence summary the orchestrator extracts verbatim for the live preview. Falls back gracefully when a model drops the section.
+
+The output you see now: `Council convened…` → 7× `> **Role**: <headline>` arriving as each lands → `Synthesizing.` → `Executing plan.` → 7× `> **Role** review: **verdict** — <first finding>` → `Council finished.` Each as its own message, painted with the `▎` blockquote bar.
+
+Council test totals: **89 pass · 0 fail · 195 expects · ~679ms** (was 71/164).
+
 ### Deterministic orchestrator is now the default — P1 complete
 
 The deterministic `runCouncilFromToolContext` path replaces the LLM-coordinator-with-strict-prompt path as the default behaviour. Verified in a live session: 7-vendor fan-out completed end-to-end, file + tests created, 9/9 tests passing.

@@ -73,12 +73,33 @@ export interface Review {
   costUsd: number
 }
 
+/**
+ * A council member that didn't deliver — either timed out, threw at the
+ * adapter, or returned an auth-failure result text. Surfaced in the
+ * `CouncilResult.failures` list so callers (REPL formatter, /council run,
+ * /handoff) can tell the user which voices dropped out instead of
+ * silently going forward with a smaller council.
+ */
+export interface CouncilFailure {
+  role: CouncilRole
+  stage: 'proposal' | 'review'
+  /** Human-readable error message — already includes timeout duration when
+   *  applicable, or the upstream error text snippet otherwise. */
+  reason: string
+  /** Whether this was a CouncilTimeoutError specifically (most common
+   *  failure mode in practice; worth distinguishing in UI). */
+  isTimeout: boolean
+}
+
 export interface CouncilResult {
   proposals: Proposal[]
   plan: SynthesizedPlan
   execution: ExecutorResult
   reviews: Review[]
   revised?: ExecutorResult
+  /** Members that failed during proposal or review. Empty when all 14
+   *  spawns succeeded. Populated by the fault-tolerant batch path. */
+  failures: CouncilFailure[]
   totalCostUsd: number
   totalDurationMs: number
 }
@@ -90,12 +111,16 @@ export interface CouncilResult {
 export type SpawnRoleProposal = (input: {
   role: CouncilRole
   userPrompt: string
+  /** Pre-assigned tool_use_id from `prepareBatch`. Adapters that wire to a
+   *  UI panel use this so progress messages route to the right cell. */
+  toolUseId?: string
   signal: AbortSignal
 }) => Promise<Proposal>
 
 export type SpawnSynthesizer = (input: {
   userPrompt: string
   proposals: Proposal[]
+  toolUseId?: string
   signal: AbortSignal
 }) => Promise<SynthesizedPlan>
 
@@ -107,6 +132,7 @@ export type SpawnExecutor = (input: {
     previousDiff: string
     blockingReviews: Review[]
   }
+  toolUseId?: string
   signal: AbortSignal
 }) => Promise<ExecutorResult>
 
@@ -115,14 +141,47 @@ export type SpawnReview = (input: {
   userPrompt: string
   proposal: Proposal
   execution: ExecutorResult
+  toolUseId?: string
   signal: AbortSignal
 }) => Promise<Review>
+
+/**
+ * Optional UI/panel hooks. Adapters that want to render the multi-agent
+ * "panel" (the `7 agents finished` tree) implement `prepareBatch` to allocate
+ * tool_use_ids and inject placeholder messages, and `completeMember` to push
+ * matching tool_result messages once each spawn lands. Pure-data adapters
+ * (tests, headless) ignore them — defaults are no-ops.
+ */
+export type PrepareBatchHook = (input: {
+  kind: 'proposal' | 'review'
+  roles: readonly CouncilRole[]
+}) => Promise<Map<CouncilRole, string>>
+
+export type PrepareSingleHook = (input: {
+  kind: 'synthesizer' | 'executor' | 'revise'
+  description: string
+}) => Promise<string>
+
+export type CompleteMemberHook = (input: {
+  kind: 'proposal' | 'review' | 'synthesizer' | 'executor' | 'revise'
+  role?: CouncilRole
+  toolUseId: string
+  status: 'success' | 'error'
+  summary?: string
+}) => Promise<void>
 
 export interface CouncilAdapters {
   spawnProposal: SpawnRoleProposal
   spawnSynthesizer: SpawnSynthesizer
   spawnExecutor: SpawnExecutor
   spawnReview: SpawnReview
+  /** Optional — adapter renders the panel by injecting placeholder messages. */
+  prepareBatch?: PrepareBatchHook
+  /** Optional — single-agent stages (synth/executor) get their own placeholder. */
+  prepareSingle?: PrepareSingleHook
+  /** Optional — fires once per spawn completion so the adapter can inject
+   *  a matching tool_result message. */
+  completeMember?: CompleteMemberHook
 }
 
 export interface CouncilInputs {
@@ -133,7 +192,12 @@ export interface CouncilInputs {
   /** Hard per-query cost ceiling. Pipeline aborts if accumulated cost
    *  exceeds this before the next stage. Defaults to $3. */
   costCeilingUsd?: number
-  /** Per-member spawn timeout (proposal, review). Defaults to 60s. */
+  /** Per-member spawn timeout (proposal, review). Defaults to 300s. Bumped
+   *  from 60s → 120s → 180s → 300s across live runs as DeepSeek-class
+   *  providers kept hitting the ceiling under load. Combined with the
+   *  fault-tolerant batch path (1-2 timeouts are absorbed, run continues
+   *  with the remaining voices), this is the safety net for "voice is
+   *  truly hung, give up and move on" rather than "voice is slow." */
   memberTimeoutMs?: number
   /** Synthesizer + executor get a longer timeout — they have more to do.
    *  Defaults to 5 minutes. */
@@ -184,12 +248,40 @@ export class CouncilMemberFailureError extends Error {
   }
 }
 
+/**
+ * Thrown when a fault-tolerant batch lost too many members to reach
+ * quorum (default: <5 of 7 voices succeeded). Distinct from
+ * `CouncilMemberFailureError` (single member) — this is "the council
+ * itself can't proceed." Callers should surface it as "not enough voices
+ * responded; retry or check provider health."
+ */
+export class CouncilQuorumLostError extends Error {
+  constructor(
+    public readonly stage: 'proposal' | 'review',
+    public readonly succeededCount: number,
+    public readonly required: number,
+    public readonly failures: CouncilFailure[],
+  ) {
+    super(
+      `Council ${stage} quorum lost: only ${succeededCount} of ${required} required voices succeeded ` +
+        `(failed: ${failures.map(f => `${f.role}=${f.isTimeout ? 'timeout' : 'error'}`).join(', ')})`,
+    )
+    this.name = 'CouncilQuorumLostError'
+  }
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // Pure helpers — exported for use by adapter + tests
 // ──────────────────────────────────────────────────────────────────────
 
 /** ≥3 of 7 block verdicts triggers one revision pass. Tune in one place. */
 export const REVISION_BLOCK_THRESHOLD = 3
+
+/** Minimum voices that must succeed in a batch for the council to proceed.
+ *  Below this, throw `CouncilQuorumLostError`. 5 of 7 = strong-majority
+ *  consensus is still reachable; 4 of 7 means the synthesizer would be
+ *  weighing a fragmented voice set, so we bail out. */
+export const MIN_VOICES_FOR_QUORUM = 5
 
 export function countBlockingReviews(reviews: Review[]): number {
   return reviews.filter(r => r.verdict === 'block').length
@@ -210,6 +302,180 @@ export function formatProposalsForSynthesizer(proposals: Proposal[]): string {
 /** Filter reviews down to the ones whose verdict justifies blocking. */
 export function selectBlockingReviews(reviews: Review[]): Review[] {
   return reviews.filter(r => r.verdict === 'block')
+}
+
+/**
+ * Pull a one-line summary out of a proposal body. The base prompt asks each
+ * council member to lead with `## Headline\n<one sentence>` — we extract that.
+ *
+ * Returns null when the member didn't comply (rare but possible — gemini /
+ * mistral occasionally drop required sections). Caller should fall back to a
+ * generic arrival ping in that case.
+ */
+export function extractHeadline(text: string): string | null {
+  // Match `## Headline` (any heading depth, any case, optional trailing colon),
+  // then capture the first non-empty line that follows. The `[^\n#]` on the
+  // first captured char rejects the case where the model emitted an empty
+  // headline section and the next match is actually the *next* heading
+  // (`## Headline\n\n## Reasoning` → null, not "## Reasoning").
+  const m = text.match(/^#{1,6}\s*Headline\s*:?\s*\n+([^\n#][^\n]*)/im)
+  if (m && m[1]) {
+    const line = stripBlockquoteAndQuotes(m[1].trim())
+    if (line) return line
+  }
+  // Fallback: inline form `## Headline: foo` on a single line (no newline
+  // between heading and content).
+  const inline = text.match(/^#{1,6}\s*Headline\s*:\s*([^\n]+)/im)
+  if (inline && inline[1]) {
+    const line = stripBlockquoteAndQuotes(inline[1].trim())
+    if (line) return line
+  }
+  return null
+}
+
+function stripBlockquoteAndQuotes(s: string): string {
+  return s.replace(/^>\s*/, '').replace(/^["'<](.*)[">']$/, '$1').trim()
+}
+
+/**
+ * Build the per-proposal arrival message that the orchestrator emits the
+ * moment a single member's proposal lands. Renders as a markdown blockquote
+ * so the terminal's markdown renderer paints it with the `▎` bar — same
+ * shape the LLM-coordinator path produces, but emitted live per arrival.
+ *
+ * The `(model-id)` parenthetical is omitted when the adapter couldn't
+ * resolve a model (modelId equal to the role slug means "unresolved").
+ */
+export function formatProposalArrival(p: Proposal): string {
+  const headline = extractHeadline(p.text)
+  const model = modelHint(p.role, p.modelId)
+  const label = `**${capitalizeRole(p.role)}**${model}`
+  if (headline) return `> ${label}: ${headline}`
+  return `> ${label}: (proposal landed; no headline section emitted)`
+}
+
+/** Build the per-review arrival message — verdict + first finding when present. */
+export function formatReviewArrival(r: Review): string {
+  const model = modelHint(r.role, r.modelId)
+  const label = `**${capitalizeRole(r.role)}**${model} review`
+  const verdict = `**${r.verdict}**`
+  const reason = r.findings[0]?.trim()
+  if (reason) return `> ${label}: ${verdict} — ${reason}`
+  return `> ${label}: ${verdict}`
+}
+
+/** ` (model-id)` when the modelId resolved to something other than the role
+ *  slug; empty string when it didn't (so we don't print `(architect)`). */
+function modelHint(role: CouncilRole, modelId: string): string {
+  if (!modelId || modelId === role) return ''
+  return ` (${modelId})`
+}
+
+/**
+ * Convert a rejected Promise.allSettled result into a structured
+ * CouncilFailure entry. Distinguishes timeouts (the common case) so the
+ * formatter can render them differently.
+ */
+export function settlementToFailure(
+  role: CouncilRole,
+  stage: 'proposal' | 'review',
+  reason: unknown,
+): CouncilFailure {
+  if (reason instanceof CouncilTimeoutError) {
+    return {
+      role,
+      stage,
+      reason: `timed out after ${reason.timeoutMs}ms`,
+      isTimeout: true,
+    }
+  }
+  if (reason instanceof CouncilMemberFailureError) {
+    const inner =
+      reason.underlying instanceof Error
+        ? reason.underlying.message
+        : String(reason.underlying)
+    return { role, stage, reason: inner, isTimeout: false }
+  }
+  const msg = reason instanceof Error ? reason.message : String(reason)
+  return { role, stage, reason: msg, isTimeout: false }
+}
+
+/**
+ * Build the "stage finished" line that lands after long single-agent
+ * stages (synth / executor / revise). The point is to make the gap
+ * between "executor was last thing emitted" and "first review arrives"
+ * unmistakable — without this, the user sees the executor's tool_result
+ * land in the panel and then nothing happens for up to memberTimeoutMs
+ * while reviews are in flight, which feels like a stuck spinner.
+ *
+ * Includes a short snippet of the stage's output when one is available
+ * (typically the first non-empty line, capped at ~140 chars).
+ */
+export function formatStageDone(
+  stage: 'synthesizer' | 'executor' | 'revise',
+  durationMs: number,
+  summary?: string,
+): string {
+  const label =
+    stage === 'synthesizer'
+      ? 'Synthesizer'
+      : stage === 'executor'
+        ? 'Executor'
+        : 'Revision'
+  const duration = formatDuration(durationMs)
+  const snippet = summary ? firstLineSnippet(summary) : null
+  if (snippet) return `> ✓ **${label}** done (${duration}) — ${snippet}`
+  return `> ✓ **${label}** done (${duration}).`
+}
+
+/** Pull the first non-empty line out of a multi-line summary, capped at
+ *  140 chars so a single emit stays under one terminal row. */
+function firstLineSnippet(text: string): string | null {
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    // Skip empty lines and lone markdown headings ('## Foo') — we want
+    // the first informative line, not a section header.
+    if (!line) continue
+    if (/^#{1,6}\s/.test(line)) continue
+    if (line.length <= 140) return line
+    return line.slice(0, 137) + '…'
+  }
+  return null
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`
+  const s = ms / 1000
+  if (s < 60) return `${s.toFixed(1)}s`
+  const m = Math.floor(s / 60)
+  const rem = Math.round(s - m * 60)
+  return `${m}m ${rem}s`
+}
+
+/**
+ * Build the per-member failure line that the orchestrator emits whenever
+ * a spawn rejects (timeout, member failure, auth failure, anything else).
+ * Symmetric with `formatProposalArrival` / `formatReviewArrival` so the
+ * failure shows up in the same blockquote stream as the successes.
+ */
+export function formatMemberFailure(
+  stage: 'proposal' | 'review',
+  role: CouncilRole,
+  err: unknown,
+): string {
+  const label = `**${capitalizeRole(role)}** ${stage}`
+  if (err instanceof CouncilTimeoutError) {
+    return `> ✗ ${label}: **timed out** after ${err.timeoutMs}ms`
+  }
+  const msg =
+    err instanceof Error ? err.message : String(err)
+  // Bound long error messages so a multi-line stack doesn't fill the screen.
+  const trimmed = msg.length > 200 ? msg.slice(0, 200) + '…' : msg
+  return `> ✗ ${label}: **failed** — ${trimmed}`
+}
+
+function capitalizeRole(role: CouncilRole): string {
+  return role[0]!.toUpperCase() + role.slice(1)
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -296,7 +562,7 @@ export async function runCouncil(
     userPrompt,
     emitStatus,
     costCeilingUsd = 3,
-    memberTimeoutMs = 60_000,
+    memberTimeoutMs = 300_000,
     longTimeoutMs = 5 * 60_000,
     adapters,
   } = inputs
@@ -308,77 +574,248 @@ export async function runCouncil(
   emitStatus('Council convened — seven members proposing in parallel.')
   ledger.ensureHeadroomOrThrow('convene')
 
-  const proposalPromises = COUNCIL_ROLES.map(role =>
-    withTimeout(
-      signal => adapters.spawnProposal({ role, userPrompt, signal }),
-      memberTimeoutMs,
-      'proposal',
-      role,
-    ).catch(err => {
-      // Wrap underlying failures so the caller can distinguish them from
-      // orchestration errors (timeout, cost). Timeouts already throw
-      // CouncilTimeoutError; everything else becomes CouncilMemberFailureError.
-      if (err instanceof CouncilTimeoutError) throw err
-      throw new CouncilMemberFailureError(role, 'proposal', err)
+  // Allocate tool_use_ids for the proposal batch. Adapters with a UI panel
+  // implement this and inject placeholder messages so the panel renders;
+  // headless adapters return an empty map.
+  const proposalIds: Map<CouncilRole, string> =
+    (await adapters.prepareBatch?.({ kind: 'proposal', roles: COUNCIL_ROLES })) ??
+    new Map()
+
+  // Fault-tolerant batch: each member's promise is fully self-contained —
+  // success path emits arrival + records cost + flips panel cell to
+  // resolved; failure path emits ✗ line + flips panel cell to error.
+  // We never re-throw from the per-member promise, so Promise.allSettled
+  // gives us a uniform shape: `{ status: 'fulfilled', value: Proposal }`
+  // or `{ status: 'rejected', reason: CouncilFailure }`. Aggregated below.
+  const proposalSettlements = await Promise.allSettled(
+    COUNCIL_ROLES.map(role => {
+      const toolUseId = proposalIds.get(role)
+      return withTimeout(
+        signal => adapters.spawnProposal({ role, userPrompt, toolUseId, signal }),
+        memberTimeoutMs,
+        'proposal',
+        role,
+      )
+        .then(async p => {
+          emitStatus(formatProposalArrival(p))
+          if (toolUseId) {
+            await adapters.completeMember?.({
+              kind: 'proposal',
+              role,
+              toolUseId,
+              status: 'success',
+              summary: p.text,
+            })
+          }
+          return p
+        })
+        .catch(async err => {
+          // Surface the failure inline (so the user sees it land at the same
+          // visual cadence as the successes) before flipping the cell.
+          emitStatus(formatMemberFailure('proposal', role, err))
+          if (toolUseId) {
+            await adapters.completeMember?.({
+              kind: 'proposal',
+              role,
+              toolUseId,
+              status: 'error',
+              summary: err instanceof Error ? err.message : String(err),
+            })
+          }
+          // Re-throw a typed error so we can recognise it in the aggregation
+          // pass below. We keep CouncilTimeoutError as-is for the .isTimeout
+          // bit; everything else gets wrapped in CouncilMemberFailureError.
+          if (err instanceof CouncilTimeoutError) throw err
+          throw new CouncilMemberFailureError(role, 'proposal', err)
+        })
     }),
   )
 
-  const proposals = await Promise.all(proposalPromises)
+  const proposals: Proposal[] = []
+  const proposalFailures: CouncilFailure[] = []
+  for (let i = 0; i < proposalSettlements.length; i++) {
+    const settlement = proposalSettlements[i]!
+    const role = COUNCIL_ROLES[i]!
+    if (settlement.status === 'fulfilled') {
+      proposals.push(settlement.value)
+    } else {
+      proposalFailures.push(settlementToFailure(role, 'proposal', settlement.reason))
+    }
+  }
+
+  if (proposals.length < MIN_VOICES_FOR_QUORUM) {
+    throw new CouncilQuorumLostError(
+      'proposal',
+      proposals.length,
+      MIN_VOICES_FOR_QUORUM,
+      proposalFailures,
+    )
+  }
+
   for (const p of proposals) ledger.recordOrThrow('proposal:' + p.role, p.costUsd)
 
   // ── Step 2: synthesize ────────────────────────────────────────────
   emitStatus('Synthesizing.')
   ledger.ensureHeadroomOrThrow('synthesize')
 
-  const plan = await withTimeout(
-    signal => adapters.spawnSynthesizer({ userPrompt, proposals, signal }),
-    longTimeoutMs,
-    'synthesize',
-  )
+  const synthToolUseId = await adapters.prepareSingle?.({
+    kind: 'synthesizer',
+    description: 'Synthesize council proposals',
+  })
+
+  let plan: SynthesizedPlan
+  const synthStart = Date.now()
+  try {
+    plan = await withTimeout(
+      signal => adapters.spawnSynthesizer({ userPrompt, proposals, toolUseId: synthToolUseId, signal }),
+      longTimeoutMs,
+      'synthesize',
+    )
+    if (synthToolUseId) {
+      await adapters.completeMember?.({
+        kind: 'synthesizer',
+        toolUseId: synthToolUseId,
+        status: 'success',
+        summary: plan.text,
+      })
+    }
+    emitStatus(formatStageDone('synthesizer', Date.now() - synthStart, plan.text))
+  } catch (err) {
+    if (synthToolUseId) {
+      await adapters.completeMember?.({
+        kind: 'synthesizer',
+        toolUseId: synthToolUseId,
+        status: 'error',
+        summary: err instanceof Error ? err.message : String(err),
+      })
+    }
+    throw err
+  }
   ledger.recordOrThrow('synthesize', plan.costUsd)
 
   // ── Step 3: execute ───────────────────────────────────────────────
   emitStatus('Executing plan.')
   ledger.ensureHeadroomOrThrow('execute')
 
-  const execution = await withTimeout(
-    signal => adapters.spawnExecutor({ userPrompt, plan, signal }),
-    longTimeoutMs,
-    'execute',
-  )
+  const executorToolUseId = await adapters.prepareSingle?.({
+    kind: 'executor',
+    description: 'Execute council plan',
+  })
+
+  let execution: ExecutorResult
+  const executorStart = Date.now()
+  try {
+    execution = await withTimeout(
+      signal => adapters.spawnExecutor({ userPrompt, plan, toolUseId: executorToolUseId, signal }),
+      longTimeoutMs,
+      'execute',
+    )
+    if (executorToolUseId) {
+      await adapters.completeMember?.({
+        kind: 'executor',
+        toolUseId: executorToolUseId,
+        status: 'success',
+        summary: execution.summary,
+      })
+    }
+    emitStatus(
+      formatStageDone('executor', Date.now() - executorStart, execution.summary),
+    )
+  } catch (err) {
+    if (executorToolUseId) {
+      await adapters.completeMember?.({
+        kind: 'executor',
+        toolUseId: executorToolUseId,
+        status: 'error',
+        summary: err instanceof Error ? err.message : String(err),
+      })
+    }
+    throw err
+  }
   ledger.recordOrThrow('execute', execution.costUsd)
 
   // ── Step 4: review (parallel) ─────────────────────────────────────
-  emitStatus('Reviewing — seven members on the diff.')
+  // Reviews only run for roles whose proposal succeeded — a voice can't
+  // review without its own proposal as context. So the review batch
+  // size matches `proposals.length`, not `COUNCIL_ROLES.length`. This
+  // means quorum math for reviews is "of the voices that proposed".
+  emitStatus(`Reviewing — ${proposals.length} members on the diff.`)
   ledger.ensureHeadroomOrThrow('review')
 
-  const reviewPromises = COUNCIL_ROLES.map(role => {
-    const proposal = proposals.find(p => p.role === role)
-    if (!proposal) {
-      // Should never happen — proposals array is built from COUNCIL_ROLES.
-      throw new Error(
-        `Internal: missing proposal for ${role} during review pass`,
-      )
-    }
-    return withTimeout(
-      signal =>
-        adapters.spawnReview({
-          role,
-          userPrompt,
-          proposal,
-          execution,
-          signal,
-        }),
-      memberTimeoutMs,
-      'review',
-      role,
-    ).catch(err => {
-      if (err instanceof CouncilTimeoutError) throw err
-      throw new CouncilMemberFailureError(role, 'review', err)
-    })
-  })
+  const reviewedRoles = proposals.map(p => p.role)
+  const reviewIds: Map<CouncilRole, string> =
+    (await adapters.prepareBatch?.({ kind: 'review', roles: reviewedRoles })) ??
+    new Map()
 
-  const reviews = await Promise.all(reviewPromises)
+  const reviewSettlements = await Promise.allSettled(
+    proposals.map(proposal => {
+      const role = proposal.role
+      const toolUseId = reviewIds.get(role)
+      return withTimeout(
+        signal =>
+          adapters.spawnReview({
+            role,
+            userPrompt,
+            proposal,
+            execution,
+            toolUseId,
+            signal,
+          }),
+        memberTimeoutMs,
+        'review',
+        role,
+      )
+        .then(async r => {
+          emitStatus(formatReviewArrival(r))
+          if (toolUseId) {
+            await adapters.completeMember?.({
+              kind: 'review',
+              role,
+              toolUseId,
+              status: 'success',
+              summary: `${r.verdict}: ${r.findings.join(' ')}`,
+            })
+          }
+          return r
+        })
+        .catch(async err => {
+          emitStatus(formatMemberFailure('review', role, err))
+          if (toolUseId) {
+            await adapters.completeMember?.({
+              kind: 'review',
+              role,
+              toolUseId,
+              status: 'error',
+              summary: err instanceof Error ? err.message : String(err),
+            })
+          }
+          if (err instanceof CouncilTimeoutError) throw err
+          throw new CouncilMemberFailureError(role, 'review', err)
+        })
+    }),
+  )
+
+  const reviews: Review[] = []
+  const reviewFailures: CouncilFailure[] = []
+  for (let i = 0; i < reviewSettlements.length; i++) {
+    const settlement = reviewSettlements[i]!
+    const role = reviewedRoles[i]!
+    if (settlement.status === 'fulfilled') {
+      reviews.push(settlement.value)
+    } else {
+      reviewFailures.push(settlementToFailure(role, 'review', settlement.reason))
+    }
+  }
+
+  if (reviews.length < MIN_VOICES_FOR_QUORUM) {
+    throw new CouncilQuorumLostError(
+      'review',
+      reviews.length,
+      MIN_VOICES_FOR_QUORUM,
+      [...proposalFailures, ...reviewFailures],
+    )
+  }
+
   for (const r of reviews) ledger.recordOrThrow('review:' + r.role, r.costUsd)
 
   // ── Step 5: maybe revise (cap at one revision) ────────────────────
@@ -389,20 +826,50 @@ export async function runCouncil(
     )
     ledger.ensureHeadroomOrThrow('revise')
 
-    revised = await withTimeout(
-      signal =>
-        adapters.spawnExecutor({
-          userPrompt,
-          plan,
-          revisionContext: {
-            previousDiff: execution.diff,
-            blockingReviews: selectBlockingReviews(reviews),
-          },
-          signal,
-        }),
-      longTimeoutMs,
-      'revise',
-    )
+    const reviseToolUseId = await adapters.prepareSingle?.({
+      kind: 'revise',
+      description: 'Revise executor diff',
+    })
+
+    const reviseStart = Date.now()
+    try {
+      revised = await withTimeout(
+        signal =>
+          adapters.spawnExecutor({
+            userPrompt,
+            plan,
+            revisionContext: {
+              previousDiff: execution.diff,
+              blockingReviews: selectBlockingReviews(reviews),
+            },
+            toolUseId: reviseToolUseId,
+            signal,
+          }),
+        longTimeoutMs,
+        'revise',
+      )
+      if (reviseToolUseId) {
+        await adapters.completeMember?.({
+          kind: 'revise',
+          toolUseId: reviseToolUseId,
+          status: 'success',
+          summary: revised.summary,
+        })
+      }
+      emitStatus(
+        formatStageDone('revise', Date.now() - reviseStart, revised.summary),
+      )
+    } catch (err) {
+      if (reviseToolUseId) {
+        await adapters.completeMember?.({
+          kind: 'revise',
+          toolUseId: reviseToolUseId,
+          status: 'error',
+          summary: err instanceof Error ? err.message : String(err),
+        })
+      }
+      throw err
+    }
     ledger.recordOrThrow('revise', revised.costUsd)
   }
 
@@ -414,6 +881,7 @@ export async function runCouncil(
     execution,
     reviews,
     revised,
+    failures: [...proposalFailures, ...reviewFailures],
     totalCostUsd: ledger.total(),
     totalDurationMs: Date.now() - start,
   }

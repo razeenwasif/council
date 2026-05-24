@@ -6,9 +6,13 @@ import { clearAgentDefinitionsCache } from '../../tools/AgentTool/loadAgentsDir.
 import {
   CouncilCostCeilingError,
   CouncilMemberFailureError,
+  CouncilQuorumLostError,
   CouncilTimeoutError,
 } from '../../coordinator/council/councilOrchestrator.js'
-import { runCouncilFromToolContext } from '../../coordinator/council/councilSpawn.js'
+import {
+  AgentAuthFailureError,
+  runCouncilFromToolContext,
+} from '../../coordinator/council/councilSpawn.js'
 
 const HELP = `Usage: /council [status|on|off|run <prompt>]
 
@@ -89,6 +93,7 @@ function formatCouncilResultSummary(result: {
   execution: { summary: string }
   reviews: Array<{ role: string; verdict: string }>
   revised?: { summary: string }
+  failures?: Array<{ role: string; stage: string; reason: string; isTimeout: boolean }>
   totalCostUsd: number
   totalDurationMs: number
 }): string {
@@ -101,10 +106,20 @@ function formatCouncilResultSummary(result: {
     .map(v => `${verdictTally[v]} ${v}`)
     .join(' · ')
 
+  const failures = result.failures ?? []
+
   const lines: string[] = []
   lines.push(
     `Council finished — ${result.proposals.length} proposals, ${tallyStr}.`,
   )
+  if (failures.length > 0) {
+    const failSummary = failures
+      .map(f => `${f.role} (${f.stage}, ${f.isTimeout ? 'timeout' : 'error'})`)
+      .join(', ')
+    lines.push(
+      `⚠ ${failures.length} voice${failures.length === 1 ? '' : 's'} failed: ${failSummary}.`,
+    )
+  }
   lines.push(
     `Duration: ${(result.totalDurationMs / 1000).toFixed(1)}s · Cost: $${result.totalCostUsd.toFixed(4)}`,
   )
@@ -167,6 +182,30 @@ export const call: LocalCommandCall = async (args, context) => {
         })
         return { type: 'text', value: formatCouncilResultSummary(result) }
       } catch (err) {
+        // Auth failures land both directly (synth/executor stages) and
+        // wrapped in CouncilMemberFailureError (proposal/review stages).
+        const inner =
+          err instanceof CouncilMemberFailureError ? err.underlying : err
+        if (inner instanceof AgentAuthFailureError) {
+          return {
+            type: 'text',
+            value:
+              `Authentication failure during council. Agent: ${inner.subagentType}. ` +
+              `Run /login in a standard openclaude session to refresh the OAuth token, then retry. ` +
+              `(claude-opus-4-7 is the global Anthropic OAuth provider — both Architect and Executor share it.)`,
+          }
+        }
+        if (err instanceof CouncilQuorumLostError) {
+          const failSummary = err.failures
+            .map(f => `${f.role}(${f.isTimeout ? 'timeout' : 'error'})`)
+            .join(', ')
+          return {
+            type: 'text',
+            value:
+              `Council quorum lost — only ${err.succeededCount} of ${err.required} required voices succeeded at stage "${err.stage}". ` +
+              `Failed: ${failSummary}. Check provider status / credentials and retry.`,
+          }
+        }
         if (err instanceof CouncilTimeoutError) {
           return {
             type: 'text',
@@ -180,10 +219,10 @@ export const call: LocalCommandCall = async (args, context) => {
           }
         }
         if (err instanceof CouncilMemberFailureError) {
-          const inner = err.underlying instanceof Error ? err.underlying.message : String(err.underlying)
+          const innerMsg = err.underlying instanceof Error ? err.underlying.message : String(err.underlying)
           return {
             type: 'text',
-            value: `Council member ${err.role} failed during ${err.stage}: ${inner}`,
+            value: `Council member ${err.role} failed during ${err.stage}: ${innerMsg}`,
           }
         }
         return {

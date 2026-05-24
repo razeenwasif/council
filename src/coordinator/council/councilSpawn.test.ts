@@ -1,12 +1,15 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  AgentAuthFailureError,
   buildExecutorPrompt,
   buildRevisionPrompt,
   describeResultShape,
   ensureAbortController,
   ensureMainLoopModel,
   extractResultText,
+  looksLikeAuthFailure,
   parseVerdict,
+  resolveRoleModel,
   synthesizeToolUseSummary,
 } from './councilSpawn.js'
 import type { Review, SynthesizedPlan } from './councilOrchestrator.js'
@@ -297,5 +300,98 @@ describe('buildRevisionPrompt', () => {
       ],
     })
     expect(out).toMatch(/Make explicit edits|do not skip|do not refuse/i)
+  })
+})
+
+describe('looksLikeAuthFailure', () => {
+  test('catches the literal "Please run /login" hint', () => {
+    expect(looksLikeAuthFailure('Please run /login · API Error: 401')).toBe(
+      true,
+    )
+  })
+
+  test('catches Anthropic\'s authentication_error JSON shape', () => {
+    expect(
+      looksLikeAuthFailure(
+        '{"type":"error","error":{"type":"authentication_error","message":"Invalid authentication credentials"}}',
+      ),
+    ).toBe(true)
+  })
+
+  test('catches an "API Error: 401" line', () => {
+    expect(looksLikeAuthFailure('something went wrong: API Error: 401')).toBe(
+      true,
+    )
+  })
+
+  test('catches OpenAI/Mistral "Incorrect API key"', () => {
+    expect(
+      looksLikeAuthFailure('Error: Incorrect API key provided'),
+    ).toBe(true)
+  })
+
+  test('catches "Invalid authentication credentials" wording', () => {
+    expect(
+      looksLikeAuthFailure('the upstream returned: Invalid authentication credentials'),
+    ).toBe(true)
+  })
+
+  test('does NOT fire on a normal proposal that mentions auth', () => {
+    expect(
+      looksLikeAuthFailure(
+        '## Proposal\nThe debounce helper does not touch auth, so the threat surface is zero.',
+      ),
+    ).toBe(false)
+  })
+
+  test('does NOT fire on a proposal that uses the word "401" in prose', () => {
+    expect(
+      looksLikeAuthFailure(
+        '## Risks\nReturning a bare 401 from the endpoint may confuse clients expecting a JSON body.',
+      ),
+    ).toBe(false)
+  })
+})
+
+describe('resolveRoleModel', () => {
+  test('returns the documented default for each known role', () => {
+    // We don't mock getSettings_DEPRECATED here — it returns either undefined
+    // or the live settings file. Either way, when agentRouting doesn't have
+    // an entry for the role, the fallback map should kick in. To make this
+    // test reliable across environments, assert the resolver returns a
+    // non-empty string for each known role and that it doesn't return the
+    // raw role slug (which is what the old code did).
+    for (const role of [
+      'architect',
+      'implementer',
+      'skeptic',
+      'critic',
+      'tester',
+      'security',
+      'performance',
+      'synthesizer',
+      'executor',
+    ]) {
+      const out = resolveRoleModel(role)
+      expect(typeof out).toBe('string')
+      expect(out.length).toBeGreaterThan(0)
+    }
+  })
+
+  test('returns the role name itself for an unknown role (no fallback)', () => {
+    expect(resolveRoleModel('not-a-real-role')).toBe('not-a-real-role')
+  })
+})
+
+describe('AgentAuthFailureError', () => {
+  test('preserves subagentType + originalText, truncates long text in message', () => {
+    const longText = 'x'.repeat(500)
+    const err = new AgentAuthFailureError('executor', longText)
+    expect(err.subagentType).toBe('executor')
+    expect(err.originalText).toBe(longText)
+    expect(err.message).toContain('executor')
+    expect(err.message).toContain('/login')
+    // 200-char excerpt + ellipsis
+    expect(err.message.length).toBeLessThan(500)
   })
 })

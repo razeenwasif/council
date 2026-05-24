@@ -6,8 +6,10 @@ import {
 import {
   CouncilCostCeilingError,
   CouncilMemberFailureError,
+  CouncilQuorumLostError,
   CouncilTimeoutError,
 } from './councilOrchestrator.js'
+import { AgentAuthFailureError } from './councilSpawn.js'
 
 describe('formatCouncilResult', () => {
   test('summarises proposals, verdicts, duration, cost, and executor output', () => {
@@ -41,6 +43,29 @@ describe('formatCouncilResult', () => {
     expect(out).toContain('87.3s')
     expect(out).toContain('$0.4200')
     expect(out).toContain('Added src/utils/x.ts')
+  })
+
+  test('mentions failed voices when some did not deliver', () => {
+    const out = formatCouncilResult({
+      proposals: Array.from({ length: 6 }, (_, i) => ({
+        role: `role-${i}`,
+        modelId: `m-${i}`,
+        text: `proposal ${i}`,
+      })),
+      plan: { text: 'p' },
+      execution: { summary: 'wrote a file' },
+      reviews: [],
+      failures: [
+        { role: 'implementer', stage: 'proposal', reason: 'timed out after 180000ms', isTimeout: true },
+      ],
+      totalCostUsd: 0.1,
+      totalDurationMs: 5000,
+    })
+    expect(out).toContain('⚠')
+    expect(out).toContain('1 voice failed')
+    expect(out).toContain('implementer')
+    expect(out).toContain('timeout')
+    expect(out).toContain('Run continued')
   })
 
   test('mentions the revision pass when one occurred', () => {
@@ -94,5 +119,43 @@ describe('formatCouncilError', () => {
   test('falls back to generic message for unknown error shapes', () => {
     expect(formatCouncilError(new Error('boom'))).toContain('boom')
     expect(formatCouncilError('a string error')).toContain('a string error')
+  })
+
+  test('formats AgentAuthFailureError thrown directly (synth/executor stage)', () => {
+    const out = formatCouncilError(
+      new AgentAuthFailureError('executor', 'Please run /login · API Error: 401'),
+    )
+    expect(out).toContain('Authentication failure')
+    expect(out).toContain('executor')
+    expect(out).toContain('/login')
+  })
+
+  test('formats CouncilQuorumLostError with the failure list and remediation hint', () => {
+    const out = formatCouncilError(
+      new CouncilQuorumLostError('proposal', 4, 5, [
+        { role: 'implementer', stage: 'proposal', reason: 'timed out', isTimeout: true },
+        { role: 'critic', stage: 'proposal', reason: 'rate limit', isTimeout: false },
+        { role: 'security', stage: 'proposal', reason: 'auth_error', isTimeout: false },
+      ]),
+    )
+    expect(out).toContain('quorum lost')
+    expect(out).toContain('4 of 5')
+    expect(out).toContain('implementer')
+    expect(out).toContain('critic')
+    expect(out).toContain('security')
+    expect(out).toContain('/login')
+  })
+
+  test('formats AgentAuthFailureError wrapped in CouncilMemberFailureError (proposal/review stage)', () => {
+    const out = formatCouncilError(
+      new CouncilMemberFailureError(
+        'architect',
+        'proposal',
+        new AgentAuthFailureError('architect', 'authentication_error'),
+      ),
+    )
+    expect(out).toContain('Authentication failure')
+    expect(out).toContain('architect')
+    expect(out).toContain('/login')
   })
 })

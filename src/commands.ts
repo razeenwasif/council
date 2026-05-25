@@ -140,6 +140,7 @@ import permissions from './commands/permissions/index.js'
 import plan from './commands/plan/index.js'
 import fast from './commands/fast/index.js'
 import council from './commands/council/index.js'
+import discover from './commands/discover/index.js'
 import handoff from './commands/handoff/index.js'
 import router from './commands/router/index.js'
 import spend from './commands/spend/index.js'
@@ -293,6 +294,7 @@ const COMMANDS = memoize((): Command[] => [
   config,
   copy,
   council,
+  discover,
   handoff,
   desktop,
   context,

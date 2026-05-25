@@ -372,7 +372,7 @@ function buildPanelHooks(
  * — it keys groups by `messageId:toolName` and only groups when ≥2 are
  * present in the same message).
  */
-function buildAgentToolUsePlaceholder(opts: {
+export function buildAgentToolUsePlaceholder(opts: {
   messageId: string
   toolUseId: string
   subagent_type: string
@@ -430,7 +430,7 @@ function buildAgentToolUsePlaceholder(opts: {
  * a previously-injected `tool_use`. This is what flips the grouped
  * renderer's `isResolved` / `isError` flags for each agent cell.
  */
-function buildAgentToolResultMessage(opts: {
+export function buildAgentToolResultMessage(opts: {
   toolUseId: string
   status: 'success' | 'error'
   summary: string
@@ -467,6 +467,7 @@ function buildAgentToolResultMessage(opts: {
  * orchestrator adapter.
  */
 const FALLBACK_ROLE_MODEL: Record<string, string> = {
+  // Council roles
   architect: 'claude-opus-4-7',
   implementer: 'deepseek-chat',
   skeptic: 'gemini-3.5-flash',
@@ -476,6 +477,12 @@ const FALLBACK_ROLE_MODEL: Record<string, string> = {
   performance: 'mistral-medium-latest',
   synthesizer: 'gemini-3.5-flash',
   executor: 'claude-opus-4-7',
+  // Debate roles
+  hypothesizer: 'claude-opus-4-7',
+  empiricist: 'gemini-3.5-flash',
+  devils_advocate: 'mistral-large-latest',
+  methodologist: 'qwen3.6-plus',
+  synthesist: 'gemini-3.5-flash',
 }
 
 /**
@@ -658,7 +665,7 @@ async function reviewFromAgentTool(
 // AgentTool driver — the only place where we talk to the AgentTool API
 // ──────────────────────────────────────────────────────────────────────
 
-interface InvokeAgentToolInputs {
+export interface InvokeAgentToolInputs {
   subagent_type: string
   description: string
   prompt: string
@@ -688,7 +695,7 @@ export interface InvokeAgentToolResult {
  *     which have a restricted tool set; the executor's broader tools rely
  *     on its own `permissionMode: 'bypassPermissions'` setting.
  */
-async function invokeAgentTool(
+export async function invokeAgentTool(
   args: InvokeAgentToolInputs,
 ): Promise<InvokeAgentToolResult> {
   // Stub assistantMessage. AgentTool reads .message.id and .requestId for

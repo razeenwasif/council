@@ -90,6 +90,12 @@ export async function runDebateFromToolContext(
     outputPath: opts.outputPath,
     emitStatus: opts.emitStatus ?? (() => {}),
     costCeilingUsd: opts.costCeilingUsd,
+    // Wire the live cost-tracker so the in-orchestrator ledger can
+    // enforce the ceiling mid-run. Without this, the per-spawn costUsd
+    // (always 0 in the deterministic AgentTool path) would never trip
+    // the ceiling, and a runaway debate could quietly bill multiples
+    // of the configured cap. See CostLedger docs in debateOrchestrator.ts.
+    getCurrentCost: getTotalCost,
     memberTimeoutMs: opts.memberTimeoutMs,
     synthesistTimeoutMs: opts.synthesistTimeoutMs,
     adapters,

@@ -145,30 +145,61 @@ function modelHint(role: ResearchRole, modelId: string): string {
 // Internal — cost ledger + timeout race
 // ──────────────────────────────────────────────────────────────────────
 
+/**
+ * Tracks cumulative cost during a debate and throws when it crosses the
+ * ceiling. Two data sources:
+ *
+ *   1. **Per-spawn `costUsd`** — what `recordOrThrow` accepts. In tests
+ *      where adapters return real per-call costs, this is the only
+ *      signal needed.
+ *
+ *   2. **Global cost-tracker delta** — exposed via the `getCurrentCost`
+ *      callback. Necessary in the AgentTool-backed deterministic path,
+ *      where `invokeAgentTool` returns `costUsd: 0` because the
+ *      AgentTool API doesn't expose flat cost. The orchestrator's local
+ *      ledger would never tick up and the ceiling would never fire —
+ *      live debates have hit $1.50+ on a $1.00 ceiling because of this.
+ *      The callback lets the ledger snapshot the global cost-tracker
+ *      between stages and use the larger of (sum of recorded, global
+ *      delta) as the accumulated total. That way the ceiling fires
+ *      whichever source has the higher number.
+ *
+ * Default `getCurrentCost` is `() => 0`, which preserves legacy test
+ * behaviour: tests that don't wire in a cost tracker continue to drive
+ * the ledger purely through `recordOrThrow`.
+ */
 class CostLedger {
-  private accumulated = 0
-  constructor(private readonly ceilingUsd: number) {}
+  private recorded = 0
+  private readonly startGlobalCost: number
+  constructor(
+    private readonly ceilingUsd: number,
+    private readonly getCurrentCost: () => number = () => 0,
+  ) {
+    this.startGlobalCost = getCurrentCost()
+  }
   recordOrThrow(stage: string, costUsd: number): void {
-    this.accumulated += costUsd
-    if (this.accumulated > this.ceilingUsd) {
-      throw new DebateCostCeilingError(
-        this.ceilingUsd,
-        this.accumulated,
-        stage,
-      )
-    }
+    this.recorded += costUsd
+    this.throwIfOverCeiling(stage)
   }
   ensureHeadroomOrThrow(stage: string): void {
-    if (this.accumulated >= this.ceilingUsd) {
+    this.throwIfOverCeiling(stage)
+  }
+  total(): number {
+    return this.bestEstimateAccumulated()
+  }
+  private bestEstimateAccumulated(): number {
+    const globalDelta = Math.max(0, this.getCurrentCost() - this.startGlobalCost)
+    return Math.max(this.recorded, globalDelta)
+  }
+  private throwIfOverCeiling(stage: string): void {
+    const accumulated = this.bestEstimateAccumulated()
+    if (accumulated >= this.ceilingUsd) {
       throw new DebateCostCeilingError(
         this.ceilingUsd,
-        this.accumulated,
+        accumulated,
         stage,
       )
     }
-  }
-  total(): number {
-    return this.accumulated
   }
 }
 
@@ -232,13 +263,14 @@ export async function runDebate(inputs: DebateInputs): Promise<DebateResult> {
     contextFiles,
     emitStatus,
     costCeilingUsd = 1.0,
+    getCurrentCost,
     memberTimeoutMs = 300_000,
     synthesistTimeoutMs = 5 * 60_000,
     adapters,
   } = inputs
 
   const start = Date.now()
-  const ledger = new CostLedger(costCeilingUsd)
+  const ledger = new CostLedger(costCeilingUsd, getCurrentCost)
   const failures: DebateFailure[] = []
 
   // ── Round 1: independent positions ──────────────────────────────────

@@ -458,7 +458,7 @@ describe('runDebate — adapter hooks', () => {
 // ──────────────────────────────────────────────────────────────────────
 
 describe('runDebate — cost ceiling', () => {
-  test('aborts when accumulated cost exceeds ceiling', async () => {
+  test('aborts when accumulated cost exceeds ceiling (per-spawn costUsd path)', async () => {
     const expensive = happyAdapters({
       spawnResearcher: async ({ role, roundNumber }) =>
         makePosition(role, roundNumber as 1 | 2, { costUsd: 0.5 }),
@@ -473,6 +473,80 @@ describe('runDebate — cost ceiling', () => {
         adapters: expensive,
       }),
     ).rejects.toThrow() // either DebateCostCeilingError or quorum issues — both acceptable
+  })
+
+  test('aborts via getCurrentCost when per-spawn costUsd is 0 (deterministic-path bug fix)', async () => {
+    // Simulates the deterministic AgentTool path: every spawn returns
+    // costUsd: 0 (because AgentTool.call doesn't expose flat cost), so
+    // the ledger's per-spawn accumulator never ticks. Without the
+    // getCurrentCost callback wiring, the ceiling never fires. With
+    // it, the ledger snapshots the global cost-tracker delta and
+    // catches the runaway.
+    let pretendGlobalCost = 0
+    const expensive = happyAdapters({
+      spawnResearcher: async ({ role, roundNumber }) => {
+        // Mimic real per-spawn cost flowing to global tracker only,
+        // not exposed on the Position object.
+        pretendGlobalCost += 0.4
+        return makePosition(role, roundNumber as 1 | 2, { costUsd: 0 })
+      },
+    })
+
+    await expect(
+      runDebate({
+        question: 'x',
+        contextFiles: [],
+        emitStatus: noopEmit(),
+        costCeilingUsd: 1.0,
+        getCurrentCost: () => pretendGlobalCost,
+        adapters: expensive,
+      }),
+    ).rejects.toThrow() // CostCeilingError after 3 spawns × $0.40 = $1.20 > $1.00
+  })
+
+  test('does NOT abort when getCurrentCost stays below ceiling', async () => {
+    // Same setup but the simulated global cost barely creeps up.
+    let pretendGlobalCost = 0
+    const cheap = happyAdapters({
+      spawnResearcher: async ({ role, roundNumber }) => {
+        pretendGlobalCost += 0.05
+        return makePosition(role, roundNumber as 1 | 2, { costUsd: 0 })
+      },
+    })
+
+    const result = await runDebate({
+      question: 'x',
+      contextFiles: [],
+      emitStatus: noopEmit(),
+      costCeilingUsd: 1.0,
+      getCurrentCost: () => pretendGlobalCost,
+      adapters: cheap,
+    })
+    expect(result.brief).toBeTruthy()
+  })
+
+  test('defaults to () => 0 when getCurrentCost not provided (legacy test behaviour preserved)', async () => {
+    // No getCurrentCost passed; per-spawn costUsd of 0 means the
+    // ledger stays at 0 and the run completes. This test pins the
+    // "tests don't need to mock cost-tracker" behaviour. Synthesist
+    // also returns 0 cost so a microscopic ceiling doesn't trip.
+    const result = await runDebate({
+      question: 'x',
+      contextFiles: [],
+      emitStatus: noopEmit(),
+      costCeilingUsd: 0.001, // microscopic — would fire if anything was attributed
+      adapters: happyAdapters({
+        spawnResearcher: async ({ role, roundNumber }) =>
+          makePosition(role, roundNumber as 1 | 2, { costUsd: 0 }),
+        spawnSynthesist: async () => ({
+          text: 'brief',
+          modelId: 'm',
+          durationMs: 1,
+          costUsd: 0,
+        }),
+      }),
+    })
+    expect(result.brief).toBeTruthy()
   })
 })
 

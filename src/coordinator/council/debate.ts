@@ -134,6 +134,15 @@ export interface DebateInputs {
    *  meaningfully more expensive than Council runs because of round 2's
    *  context expansion. */
   costCeilingUsd?: number
+  /** Returns the current global session cost (in USD). When provided,
+   *  the cost ledger snapshots this between stages and uses the delta
+   *  to enforce the ceiling — necessary because the deterministic
+   *  AgentTool spawn path returns `costUsd: 0` for each spawn (no flat
+   *  cost on the AgentTool result), so a per-spawn-only ledger never
+   *  ticks up. Default is `() => 0`, which preserves headless test
+   *  behaviour. Callers in the live REPL flow wire `getTotalCost`
+   *  from cost-tracker. */
+  getCurrentCost?: () => number
   /** Per-voice spawn timeout. Defaults to 300s, same as Council. */
   memberTimeoutMs?: number
   /** Synthesist timeout. Defaults to 5 minutes. */

@@ -37,6 +37,22 @@ Six artifacts in `src/utils/council/` (formatCost, withRetry, lruCache, clamp, p
 
 ## P2 — actively useful, not yet built
 
+### Fix cost-ceiling enforcement in runCouncil (mirrors the runDebate fix)
+
+**Symptom**: Council's `costCeilingUsd` default of $3 is enforced by `CostLedger.recordOrThrow(stage, p.costUsd)` — but in the deterministic AgentTool path, `costUsd` is always 0 (AgentTool.call doesn't expose flat per-call cost). So the ceiling never actually fires; a runaway council could quietly bill multiples of the cap.
+
+**Root cause**: same as the one fixed for `runDebate` in commit (next commit after this one). The orchestrator's local ledger only sees what spawn callbacks report; the global cost-tracker has the truth but isn't consulted.
+
+**Fix**: copy the pattern from `runDebate`/`debate.ts`:
+1. Add `getCurrentCost?: () => number` to `CouncilInputs` (defaults to `() => 0` for tests).
+2. Update `CostLedger` in `councilOrchestrator.ts` to accept the callback and use `max(recorded, globalDelta)` as the accumulated total.
+3. Wire `getTotalCost` in `runCouncilFromToolContext` (`councilSpawn.ts`).
+4. Add 3 tests mirroring the debate test cases (per-spawn-cost path, getCurrentCost path, defaults-to-noop preservation).
+
+**Estimate**: ~30 minutes. Direct copy of the debate fix, just applied to a different orchestrator.
+
+**Why P2**: same risk surface as the debate bug — a stuck-spawn loop or runaway tool use could bill way past the configured cap before anyone notices. Council's $3 default is more forgiving than debate's $1, but the safety net is still off.
+
 ### Add pricing-table entries for shim provider models
 
 **Symptom**: `/spend --models` now correctly shows shim providers (deepseek-chat, gemini-3.5-flash, qwen3.6-plus, mistral-large-latest, mistral-medium-latest, gpt-4.1-mini) in the breakdown — that part landed in `c428f0e`. But the cost numbers for those rows are calculated at **claude-opus-4-7 rates** because openclaude's pricing table doesn't have entries for them. Result: an Implementer turn that actually cost ~$0.001 on DeepSeek shows up as ~$0.05 at opus rates.

@@ -75,6 +75,51 @@ Six artifacts in `src/utils/council/` (formatCost, withRetry, lruCache, clamp, p
 
 **Why P2**: actively misleading. A user looking at `/spend --models` and thinking "wow, deepseek is expensive" would be drawing the wrong conclusion.
 
+### MCP integrations for the research path
+
+Five MCPs were evaluated against this project's needs. The two tiers below were the survivors — the rest were either redundant with existing tools (web search/fetch, sequential thinking, filesystem MCPs) or only relevant if scope expands (PubMed, GitHub MCP). See `CO-SCIENTIST.md` for context on why these specific capabilities are load-bearing for the planned hypothesis-loop architecture.
+
+**Latency budget caveat (applies to all)**: each `/discover` voice has a 300s timeout. Any MCP that adds >30s per call eats noticeably into the fault-tolerance margin. Benchmark before wiring into the inner loop.
+
+#### Tier 1 — would change observed system behavior
+
+**arXiv MCP** *(highest single-impact addition)*
+- *What*: paper search + abstract fetch against arXiv. Several community implementations exist; pick one with PDF-text extraction if possible.
+- *Why*: Empiricist (in `/discover`) and the planned Generation/Reflection agents have no way to ground claims in real literature without user-supplied context files. This is the sharpest current limitation of the research path.
+- *Wiring*: expose to `empiricistAgent.ts` first, then to the planned Generation + Reflection agents in Co-Scientist. Keep gated behind a flag — Methodologist + Hypothesizer + Devil's Advocate shouldn't have it (different roles, different failure modes).
+- *Risks*: rate limits, abstract-only fallback if PDF fetch fails, citation-hallucination still possible if the agent doesn't actually read what it fetched. Validate with a "did the agent quote text that appears in the fetched abstract" check.
+- *Estimate*: 1–2 hours wiring once an MCP server is selected; longer if writing a new server. Pilot on `/discover` against a question requiring real literature lookup.
+
+**Wolfram Alpha MCP**
+- *What*: structured math/physics/unit computation via Wolfram's API.
+- *Why*: both observed `/discover` math slips would have been caught — the `V ∝ ρ⁻³` direction error and the Widrow `Δ²/24 vs Δ²/12` constant. Hypothesizer's "math sanity-check" prompt is currently the only line of defense and has failed in both observed live runs. A computation MCP turns sanity-check from a prompt instruction into a verifiable step.
+- *Wiring*: expose to Hypothesizer + Empiricist (the voices most likely to assert quantitative claims). Add a post-generation hook that flags any unverified numerical claim in the position output.
+- *Risks*: Wolfram has usage caps; expensive at scale. Limited to textbook formulas — won't help with novel derivations.
+- *Estimate*: 2–3 hours. Easier than the Python-execution option; pick this first if not building Co-Scientist soon.
+
+**Code-execution MCP** *(Python sandbox — Pyodide-based, or hosted via Modal/E2B)*
+- *What*: in-loop Python execution for numerical sanity checks, unit verification, quick simulations.
+- *Why*: same as Wolfram but extends to anything computable. Particularly relevant for the user's GW research since claims like "SNR scales as bit-depth N" or "phase mismatch accumulates as O(√N)" are directly testable, not just argued. Strictly more powerful than Wolfram but more work to integrate safely.
+- *Wiring*: same agents as Wolfram (Hypothesizer + Empiricist). Should be allowlisted for write to a scratch dir only.
+- *Risks*: sandbox hygiene is non-trivial; latency higher than Wolfram (cold start + execution); agent might run wrong code and "verify" a wrong claim. Add a "what did you run and what was the output" requirement to the position format if used.
+- *Estimate*: 4–6 hours if using an existing MCP; longer if rolling sandbox infra. Defer until after arXiv + Wolfram ship.
+
+#### Tier 2 — setup-worth, not behavior-changing yet
+
+**Semantic Scholar / OpenAlex MCP**
+- *What*: citation graph queries — "what papers cite X", "what does paper Y cite", author/venue metadata.
+- *Why*: complements arXiv with cross-paper validation that arXiv search alone can't provide. Lower-impact than arXiv because the Empiricist's current failure mode is "no literature access at all," not "can't find related work to a known paper."
+- *Wiring*: same call site as arXiv MCP (Empiricist). Wire after arXiv is proven valuable.
+- *Risks*: API rate limits; some papers have no citation data; OpenAlex coverage varies by domain.
+- *Estimate*: 1 hour once arXiv MCP integration pattern is established.
+
+**Memory MCP** *(Mem0, MCP-memory-keeper, or similar)*
+- *What*: persistent key-value or graph memory across sessions, exposed as MCP tools.
+- *Why*: directly maps to Co-Scientist's "Context Memory" component documented in `CO-SCIENTIST.md`. Could hold the hypothesis pool + Elo state + Scientist feedback across sessions, which is required for the closed-loop tournament to work.
+- *Wiring*: **do not adopt before building the in-process Context Memory primitive** (roadmap step 1 in `CO-SCIENTIST.md`). Picking an MCP first would couple the data model to that MCP's schema before we know what shape we actually want. Re-evaluate after roadmap step 5.
+- *Risks*: state divergence between MCP and in-process state; vendor lock-in; data model coupling.
+- *Estimate*: not yet — sequence after `CO-SCIENTIST.md` step 5 (Evolution agent) at the earliest.
+
 ---
 
 ## P3 — cleanup carryover from pre-v1
@@ -118,7 +163,86 @@ None of these block anything; they're hygiene as opportunities arise.
 Council members lose context between sessions. Persistent role memory (one shared scratchpad per role across a project) would let the Skeptic remember past gotchas, the Architect remember past design decisions, etc. Hook into the existing `agentMemory.ts` infra in `src/tools/AgentTool/`.
 
 ### Council voting weights
-Right now ≥3 blocks (out of 7) triggers revision. Could weight by role (Skeptic 1.5×, etc.) or by past accuracy (track which member's verdicts predicted actual bugs).
+Right now ≥3 blocks (out of 7) triggers revision. Could weight by role (Skeptic 1.5×, etc.) or by past accuracy (track which member's verdicts predicted actual bugs). *Now subsumed as Phase 3 of the self-improving council entry below — leaving the standalone item here as a pointer.*
+
+### Self-improving council
+
+Close the feedback loop: the council currently runs once, emits a diff, and forgets everything. Outcome data (was the diff accepted? did it need a revision pass? did the user reject it? did tests fail later?) is thrown away. With that signal captured, the council can improve along three axes — voting calibration, prompt evolution, and model routing — without retraining anything.
+
+**This is not a single feature.** Five phases below, each independently shippable and each providing value on its own. The honest assessment is that *full* automated self-improvement is unlikely to converge at single-user scale (the signal is too sparse). What *will* work is telemetry + human-in-the-loop iteration, with progressively more automation as the data builds up.
+
+#### Phase 1 — Outcome telemetry *(prerequisite, no learning yet)*
+
+Without this, none of the later phases are possible. Log to `~/.openclaude/council-runs.jsonl`:
+
+- Run ID, timestamp, prompt hash, router decision (heuristic/llm/forced)
+- Per-voice: role, resolved model, proposal text, headline, duration, cost, success/failure
+- Synthesizer plan + which proposals it cited (parse from output structure)
+- Executor diff + files touched + revision-pass count
+- Per-reviewer: verdict, model, summary
+- **Outcome**: accepted / rejected / partial / needed-manual-fix — set by the user via slash command (`/council outcome <accept|reject|partial>`) immediately after the run
+
+Default opt-in. Append-only, like `usage.jsonl`. Provides immediate value as a debugging trace even before any learning happens.
+
+**Estimate**: ~4–6 hours. Mostly piping existing in-memory `CouncilResult` to disk plus a new slash command.
+
+#### Phase 2 — Eval harness *(prerequisite for any prompt/model change)*
+
+Pick 30–50 logged runs with clear outcomes. Replay them with modified prompts or model bindings and measure delta. Two replay modes:
+
+- **Offline replay**: feed the original prompt through the council with new prompts/models; compare to the original outcome judgment (was the new diff better/worse/same in terms of what the original outcome suggested?).
+- **Counterfactual scoring**: for runs the user marked "needed manual fix," store the user's actual fix. New runs that produce closer-to-that-fix score higher.
+
+This is the foundation that makes Phase 3–5 not blind. Without it, every "improvement" is a guess.
+
+**Estimate**: 1–2 days. Replay framework + a scoring rubric.
+
+#### Phase 3 — Verdict calibration *(formerly the standalone voting-weights item)*
+
+Lowest data requirement, simplest signal. Track per-voice: did this voice's block/concern verdicts predict a real outcome problem (revision needed, user rejection, post-merge bug filed)?
+
+- Compute precision/recall per voice on the captured outcomes.
+- Adjust block-weighting: voices with high precision get >1.0× weight; voices with high false-positive rate get <1.0×.
+- Auto-tune the quorum threshold (currently ≥3 blocks → revision) based on the weighted-precision data.
+
+Conservative defaults: don't deviate more than ±50% from baseline weights without ≥20 runs of evidence per voice. Surface the per-voice calibration in `/council stats` so the user can see why weights drifted.
+
+**Estimate**: 2–3 days after Phases 1+2.
+
+#### Phase 4 — Prompt evolution *(human-gated, never auto-shipped)*
+
+A meta-reviewer agent runs nightly (or on `/council improve`) over the last N logged runs. For each role, it identifies recurring failure patterns and proposes prompt tweaks. The proposal is a *diff against the current prompt file*, written to a review queue.
+
+- The user reviews each proposed diff via `/council review-prompts`.
+- Approved diffs land via the existing edit infrastructure.
+- Each change is A/B-tested via the Phase 2 eval harness on a held-out replay set before being applied — if eval score regresses, the change is rejected automatically.
+
+Crucially: never apply a prompt change without (a) human review, and (b) eval-harness confirmation. Auto-evolving prompts in a tight loop is the most likely path to silent quality regression.
+
+**Estimate**: 1 week. The meta-reviewer is a new agent (similar in spirit to Co-Scientist's Meta-review), but operating over council telemetry rather than research hypotheses.
+
+#### Phase 5 — Model routing learning
+
+Per-prompt-class model recommendations. Cluster historical prompts (embeddings + simple k-means) and track which model-binding configuration produced the best outcomes per cluster. Surface as suggestions (`/council suggest-models <prompt>` returns "for this kind of prompt, consider routing Implementer to gpt-4.1-mini") — not as auto-swaps.
+
+Lowest priority of the five — model routing changes are easy to do manually and the signal is the weakest of the three.
+
+**Estimate**: ~1 week, mostly because of the embedding + clustering infrastructure (which is also needed for the Co-Scientist Proximity agent — shared investment).
+
+#### Risks + honest limitations
+
+- **Sparse-signal problem at single-user scale**. You generate ~1–10 council runs per day; even Phase 3 (the simplest) needs ~20 runs per voice to be meaningful, so calibration won't be informative for weeks.
+- **Goodhart's law**. Optimizing for "user accepts the diff" can mean producing diffs that *look* agreeable rather than diffs that are *correct*. Mitigate by capturing a delayed-outcome signal (post-merge bug rate, test failures within N days) and weighting it higher than instant acceptance.
+- **Outcome bias**. The user marking "accepted" doesn't mean the council was right — it means the user didn't catch the bug yet. Same fix: lag the signal.
+- **Confounding**. Was the run successful because of prompt X, or because the input happened to be easy? Eval harness controls for this somewhat by replaying the *same* prompts, but the harness itself can only score against outcomes already observed.
+- **Replay drift**. Models update behind the scenes; a replay 6 months later isn't reproducing the same conditions. Pin replay model versions where the providers allow it.
+- **Privacy**. Logged runs contain whatever prompts the user typed. Keep the telemetry local (`~/.openclaude/`); never ship to a remote endpoint without explicit opt-in.
+
+#### Sequencing recommendation
+
+Build **Phase 1 first and stop there until you've accumulated 30+ runs of telemetry**. That's the genuinely high-value step — even without any later phase, having the data lets you eyeball patterns and tweak prompts yourself (which is what's been happening informally for `/discover` already — the math-slip → Hypothesizer prompt update was exactly this loop, but run manually with the data living in your head). Phase 2+ is only worth building once the data clearly shows where the automated leverage would be.
+
+**Total estimate if all phases ship**: ~3 weeks of focused work, but spread over months because Phases 3+ are gated on telemetry accumulation.
 
 ### Per-prompt member swap
 `/council swap skeptic <model-id>` to temporarily replace the skeptic's model for the next prompt — useful when debugging or running A/B comparisons.

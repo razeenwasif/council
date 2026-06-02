@@ -246,27 +246,6 @@ Coverage output is written to `coverage/lcov.info`, and Council also generates a
 - `.github/` - repo automation, templates, and CI configuration
 - `bin/` - CLI launcher entrypoints
 
-## Security
-
-If you believe you found a security issue, see [SECURITY.md](SECURITY.md).
-
-## Community
-
-- Use [GitHub Discussions](https://github.com/Gitlawb/openclaude/discussions) for Q&A, ideas, and community conversation
-- Use [GitHub Issues](https://github.com/Gitlawb/openclaude/issues) for confirmed bugs and actionable feature work
-
-## Contributing
-
-Contributions are welcome.
-
-For larger changes, open an issue first so the scope is clear before implementation. Helpful validation commands include:
-
-- `bun run build`
-- `bun run test:coverage`
-- `bun run smoke`
-- focused `bun test ...` runs for files and flows you changed
-
-
 ## Disclaimer
 
 Council is an independent community project and is not affiliated with, endorsed by, or sponsored by Anthropic.

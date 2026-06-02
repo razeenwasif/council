@@ -1,0 +1,260 @@
+\documentclass[11pt]{article}
+\input{preamble.tex}
+
+\title{\bfseries Literature Review: Quantized Domain Specialists for Multi-Agent Scientific Reasoning}
+\author{Razeen Wasif\\\small Independent researcher\\\small \href{mailto:razeen.wasif66@gmail.com}{\nolinkurl{razeen.wasif66@gmail.com}}}
+\date{June 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent This review situates the proposed research project (companion \emph{Research Proposal}) at the intersection of four active research areas: multi-agent LLM systems, LLM quantization, domain-specific fine-tuning, and verification/self-checking. Each area has substantial literature individually; the intersection is under-studied. We survey $\sim$55 sources to make that gap visible and to provide the grounding for the proposal's methodology choices.
+\end{abstract}
+
+\tableofcontents
+
+\section{Introduction and Scope}
+
+The proposed research project sits at the intersection of four active research areas:
+
+\begin{enumerate}
+  \item \textbf{Multi-agent LLM systems} --- increasingly studied for their ability to outperform single-model approaches on reasoning, factuality, and scientific tasks.
+  \item \textbf{LLM quantization} --- a mature engineering subfield with active research on extreme compression ($\leq$4 bits).
+  \item \textbf{Domain-specific fine-tuning} --- a long-standing tradition (SciBERT, BioBERT) recently extended into the generative-LLM era (Galactica, Med-PaLM, PMC-LLaMA).
+  \item \textbf{Verification and self-checking} --- emerging methods for catching LLM errors via debate, self-critique, process supervision, and external tool use.
+\end{enumerate}
+
+Each area has substantial literature individually. \textbf{The intersection is under-studied.} No prior work that we have found combines: (a) a heterogeneous multi-agent system, (b) with a quantized domain-specialist as a \emph{verification} component, (c) subjected to a \emph{controlled quantization ablation}. This review is organized to make that gap visible.
+
+\section{Multi-Agent LLM Systems}
+
+\subsection{Foundational systems}
+
+The multi-agent paradigm for LLMs took shape in 2023. \textbf{AutoGen}~\cite{wu2023autogen} introduced a conversational multi-agent framework where customizable, conversable agents (LLM-driven, human-driven, or tool-driven) cooperate to solve problems. The paper demonstrated effectiveness across mathematics, coding, QA, and operations research. \textbf{MetaGPT}~\cite{hong2023metagpt} extended this with Standard Operating Procedure (SOP) encoding: agents are assigned roles (project manager, architect, developer) that mirror real software-team workflows, producing more coherent end-to-end software artifacts. \textbf{CAMEL}~\cite{li2023camel} explored autonomous role-playing between AI agents (assistant + user) to generate task-oriented conversations, producing the 25K-conversation AI Society dataset as a side artifact.
+
+A complementary line --- \textbf{HuggingGPT}~\cite{shen2023hugginggpt} --- used an LLM as a \emph{controller} orchestrating dozens of specialized HuggingFace models. The four-stage workflow (task planning $\rightarrow$ model selection $\rightarrow$ execution $\rightarrow$ response generation) is conceptually related to our verification layer, where a frontier model dispatches claim-checking to local specialists.
+
+\subsection{Debate as a quality mechanism}
+
+Du et al.~\cite{du2023multiagent} is the most cited theoretical result in this space. They show that multiple LLM instances proposing and critiquing each other's answers over multiple rounds consistently outperform single-model baselines on mathematics, strategic reasoning, and factual QA. \textbf{Arithmetic accuracy improves with both more agents and more debate rounds} --- a scaling law that motivates the multi-voice design of Council and \texttt{/discover}.
+
+\subsection{Self-improvement loops}
+
+Three related approaches established that LLMs can improve their own outputs without weight updates:
+
+\begin{itemize}
+  \item \textbf{Self-Refine}~\cite{madaan2023selfrefine} --- a single LLM generates, critiques, and refines its output iteratively. Reports $\sim$20\% absolute improvement across diverse tasks vs.\ direct generation.
+  \item \textbf{Reflexion}~\cite{shinn2023reflexion} --- agents verbally reflect on task feedback and store reflections in an episodic memory buffer to improve subsequent attempts.
+  \item \textbf{Tree of Thoughts}~\cite{yao2023treeofthoughts} --- generalizes Chain-of-Thought to deliberate search over reasoning branches, with self-evaluation and backtracking. Lifts GPT-4's Game-of-24 success rate from 4\% (CoT) to 74\%.
+\end{itemize}
+
+All three operate within a \emph{single model}. The present project extends this lineage by introducing a \emph{different} model (a specialist) as the critic, betting that cross-model heterogeneity catches errors a single model is blind to.
+
+\subsection{Co-Scientist --- the closest prior art}
+
+Gottweis et al.~\cite{gottweis2025coscientist} introduce Google's Gemini-2.0-powered multi-agent system with six specialized agents (Generation, Reflection, Ranking, Proximity, Evolution, Meta-review) operating in a closed tournament loop over a hypothesis pool. \textbf{This is the closest published architecture to the planned Co-Scientist mode of our system.} Critical differences in the present work:
+
+\begin{itemize}
+  \item All Google Co-Scientist agents are frontier (Gemini); we mix frontier reasoners + local specialists.
+  \item Google Co-Scientist is closed-source; our verification-layer hybrid is reproducible on consumer hardware.
+  \item Google does not study the \emph{quantization} of any component; that is the load-bearing contribution of our proposal.
+\end{itemize}
+
+\subsection{Reasoning primitives}
+
+Chain-of-Thought prompting~\cite{wei2022chainofthought} established that intermediate reasoning steps substantially improve LLM performance on math, commonsense, and symbolic tasks --- but only emerges around $\sim$100B parameters. Tree of Thoughts~\cite{yao2023treeofthoughts} generalizes this. \textbf{Process Reward Models}~\cite{lightman2023verifystepbystep} --- OpenAI's ``Let's Verify Step by Step'' work --- show that \emph{step-level} supervision substantially outperforms outcome-only supervision on math benchmarks. The verifier architecture in the present project draws on PRM principles: it audits \emph{individual claims}, not just final answers.
+
+\subsection{Verification of generated content}
+
+\textbf{SelfCheckGPT}~\cite{manakul2023selfcheckgpt} detects hallucinations in black-box LLMs by sampling multiple responses and measuring consistency --- a method that scales to closed APIs without internal access. \textbf{Constitutional AI}~\cite{bai2022constitutional} introduced RLAIF: training an AI to evaluate outputs against a constitution of natural-language principles, replacing human feedback. \textbf{LLM-as-a-Judge}~\cite{zheng2023llmjudge} systematically validated using strong LLMs (GPT-4) as judges of chatbot output quality, finding $\sim$80\% agreement with human raters while characterizing position/verbosity/self-enhancement biases.
+
+These verification techniques all use a \emph{strong} LLM as judge. The present project's open question: can a small, quantized, fine-tuned model serve as a credible domain-specific judge despite its lower general capability?
+
+\section{LLM Quantization}
+
+\subsection{Post-training quantization}
+
+\textbf{GPTQ}~\cite{frantar2022gptq} introduced layer-wise weight quantization for LLMs using inverse-Hessian information to update remaining weights as each one is quantized. Established that 3--4 bit weight-only quantization could be done without catastrophic accuracy loss on large models. \textbf{AWQ}~\cite{lin2023awq} refined this with activation-aware per-channel scaling, observing that protecting $\sim$1\% of salient weights preserves most of the model's accuracy. AWQ has been adopted by NVIDIA TensorRT-LLM, AMD, Google Vertex, Amazon SageMaker, vLLM, and HuggingFace TGI.
+
+\textbf{SmoothQuant}~\cite{xiao2022smoothquant} addressed the \emph{activation} quantization problem: activations have outliers $\sim$100$\times$ larger than typical values, making W8A8 (8-bit weight + activation) quantization lose accuracy. SmoothQuant migrates the quantization burden from activations to weights via a mathematically-equivalent transformation. \textbf{ZeroQuant}~\cite{yao2022zeroquant} introduced fine-grained, hardware-friendly quantization with layer-by-layer knowledge distillation, achieving INT8 W/A quantization with minimal accuracy impact and up to $5\times$ speedup.
+
+\subsection{Extreme low-bit quantization}
+
+\textbf{OmniQuant}~\cite{shao2023omniquant} combined learnable weight clipping with sample-efficient calibration to push compression to 2--4 bits. \textbf{BitNet b1.58}~\cite{ma2024bitnet} --- Microsoft's 1.58-bit model --- trains directly in low-bit precision from scratch using ternary weights $\{-1, 0, 1\}$, encoding $\log_2(3) \approx 1.58$ bits per parameter. Matches FP16 LLaMA in perplexity at 3B parameter scale while using $3.55\times$ less GPU memory and running $2.71\times$ faster. The most extreme PTQ work --- AQLM~\cite{egiazarian2024aqlm}, QuIP, OneBit --- pushes below 3 bits with diminishing accuracy returns. \emph{Below 3 bits remains research territory; production deployments stay at Q4--Q8.}
+
+\subsection{Rotation-based quantization}
+
+A 2024 advance: QuaRot showed that rotating LLM hidden states (via Hadamard transforms) removes outliers without changing the model's output, dramatically easing quantization. \textbf{SpinQuant}~\cite{liu2024spinquant} extended this by \emph{learning} the rotation matrices via Cayley optimization on a small calibration set. For Llama-2 7B at W4A4KV4, SpinQuant narrows the accuracy gap to FP16 to 2.9 points --- substantially better than LLM-QAT~\cite{liu2023llmqat} (+19.1 pts gap) and SmoothQuant (+25 pts).
+
+\subsection{Quantization-aware training}
+
+\textbf{LLM-QAT}~\cite{liu2023llmqat} introduced data-free QAT for LLMs: generates synthetic training data from the pretrained model itself (no need for the original training data), distills the FP16 model into a quantized student. Quantizes weights, activations, \emph{and} KV cache. Demonstrated on LLaMA 7B/13B/30B down to 4 bits. \textbf{The present project will use LLM-QAT-style methodology for Phase 3's QAT vs.\ PTQ comparison.}
+
+\subsection{Quantization $\times$ reasoning --- the most directly relevant prior work}
+
+Liu et al.~\cite{liu2025quantmeetsreasoning} is the closest prior work to our central question. They evaluate quantization on math reasoning specifically, finding:
+
+\begin{itemize}
+  \item AWQ and GPTQ introduce up to \textbf{32.39\% accuracy degradation} (average 11.31\%) on Llama-3 models, concentrated in numerical computation and reasoning planning.
+  \item Performance drops on math reasoning are disproportionately larger than on general commonsense and language-understanding benchmarks.
+  \item \textbf{Fine-tuning quantized models on only 545 task-specific examples for 3 minutes on 4 GPUs effectively restores reasoning capabilities to near full-precision levels.}
+\end{itemize}
+
+This last finding is directly relevant: it suggests that small-scale specialty fine-tuning may compensate for quantization damage, which is exactly the verification-layer hypothesis. The present project extends this by (a) using the fine-tuned quantized model as a \emph{verifier} rather than a primary reasoner, (b) measuring across more bit-depths with explicit PTQ-vs-QAT comparison, (c) embedding the result in a multi-agent system.
+
+\subsection{The serving stack --- llama.cpp / GGUF}
+
+The community-standard format for serving quantized LLMs is GGUF (introduced in \texttt{llama.cpp}~\cite{gerganov2023llamacpp}). GGUF supports 1.5--8 bit quantization via ``K-quant'' variants (Q2\_K, Q3\_K\_S/M/L, Q4\_K\_S/M, Q5\_K\_S/M, Q6\_K) that use mixed-precision blocks for better accuracy at the same effective bit budget. The present project's Phase 3 quantization sweep uses GGUF formats because they are widely-deployed, well-tested, and serve directly through Ollama.
+
+\section{Parameter-Efficient Fine-Tuning}
+
+\subsection{LoRA and family}
+
+\textbf{LoRA}~\cite{hu2021lora} is the foundational method: freeze pre-trained weights, introduce trainable low-rank decomposition matrices in parallel. Achieves up to $10{,}000\times$ fewer trainable parameters and $3\times$ less GPU memory for GPT-3-scale fine-tuning, with no inference-time latency cost (adapters can be merged).
+
+\textbf{QLoRA}~\cite{dettmers2023qlora} combined LoRA with 4-bit quantization of the frozen base, enabling fine-tuning of 65B models on a single 48GB GPU. Introduced 4-bit NormalFloat (NF4) quantization and Double Quantization. \emph{Demonstrated that combining quantization + adapter fine-tuning is viable.} The present project inherits this lineage but flips the direction: instead of QLoRA's ``fine-tune through frozen quantization,'' we explore ``fine-tune at FP16, then quantize the merged result, and measure the curve.''
+
+\textbf{DoRA}~\cite{liu2024dora} decomposes pretrained weights into \emph{magnitude} and \emph{direction} components, applying LoRA only to direction. Consistently outperforms LoRA across LLaMA, LLaVA, and VL-BART on commonsense reasoning, visual instruction tuning, and image/video-text tasks. \emph{No additional inference cost.}
+
+\subsection{Domain expansion without forgetting}
+
+\textbf{LLaMA-Pro}~\cite{wu2024llamapro} proposes \emph{block expansion}: extending a pretrained LLM with zero-initialized Transformer blocks tuned exclusively on the new corpus while original blocks remain frozen. Specifically addresses catastrophic forgetting in domain specialization. LLaMA Pro-8.3B (from LLaMA-2-7B) matches StarCoder-15B on code and beats LLaMA-2-13B and LLaMA-2-34B on math while remaining smaller. Directly relevant: it is a method for adding domain expertise \emph{without losing general capability} --- a key requirement for the verifier role.
+
+\subsection{Model merging and sparse upcycling}
+
+Task Arithmetic introduced the concept of ``task vectors'' --- the difference between fine-tuned and pre-trained weights --- that can be added, subtracted, or interpolated. TIES-Merging addresses interference between merged models by resolving sign conflicts. DARE randomly drops up to 90\% of delta parameters before merging, mitigating interference. \textbf{Sparse Upcycling}~\cite{komatsuzaki2022sparseupcycling} trains MoE models from dense checkpoints by replacing MLP layers with MoE layers initialized from the original MLP, recovering $\sim$100\% of the dense-training cost while reaching MoE-quality outputs at $\sim$50\% incremental cost.
+
+\section{Domain-Specific Scientific LLMs}
+
+\subsection{Encoder-era scientific models}
+
+\textbf{SciBERT}~\cite{beltagy2019scibert} was the first widely-used pretrained encoder for scientific text --- BERT pretrained on 1.14M biomedical + CS papers from Semantic Scholar with an in-domain vocabulary (SciVocab). \textbf{BioBERT} narrowed the focus to PubMed/PMC. These models established the \emph{value of domain pretraining} but were limited to discriminative tasks. \textbf{ChemBERTa}~\cite{chithrananda2020chemberta} extended this to chemistry, pretrained on SMILES strings via masked language modeling.
+
+\subsection{Generative scientific LLMs}
+
+\textbf{Galactica}~\cite{taylor2022galactica} --- Meta's 120B parameter LLM trained on 106B tokens of curated scientific text. Outperformed Chinchilla on math MMLU (41.3\% vs 35.7\%), beat PaLM 540B on MATH (20.4\% vs 8.8\%). \emph{Famously, the demo was pulled within 3 days after public hallucination examples.} The technical contribution stands; the deployment lesson --- that even strong domain models hallucinate confidently --- is one of the motivations for the verification-layer approach.
+
+\textbf{Med-PaLM 2}~\cite{singhal2023medpalm2} --- Google's medical specialist built from PaLM 2 + medical domain fine-tuning + new prompting strategies. Achieved 86.5\% on MedQA. \textbf{PMC-LLaMA}~\cite{wu2023pmcllama} --- open-source biomedical LLM, two-stage training: pretraining on 4.8M biomedical papers + 30K medical textbooks, then instruction tuning. Outperformed ChatGPT on PubMedQA, MedMCQA, USMLE. \emph{Demonstrates the open-source path to specialist models that the present project follows.}
+
+\subsection{Continued pretraining methodology}
+
+Gururangan et al.~\cite{gururangan2020dontstop} established \textbf{DAPT} (Domain-Adaptive Pretraining) and \textbf{TAPT} (Task-Adaptive Pretraining) as canonical methodology: take a general pretrained model, continue masked-language-modeling on a target-domain corpus, then fine-tune on the end task. This is the methodology the present project's Phase 2 follows.
+
+\textbf{Catastrophic forgetting}~\cite{luo2023catastrophic} --- an empirical study finding that catastrophic forgetting in LLMs \emph{intensifies with scale} (worse in 7B than 1B). Models suffer stronger forgetting in domain knowledge, reasoning, and reading comprehension. Critical risk to address in Phase 2; mitigations include general instruction mixing during fine-tuning and methods like LLaMA-Pro's block expansion.
+
+\section{Tool Use, MCP, and Retrieval}
+
+\subsection{Tool-augmented LLMs}
+
+\textbf{Toolformer}~\cite{schick2023toolformer} --- LLMs learn to use external tools (calculator, search, translation, QA, calendar) by self-supervised generation of training examples with tool API calls. \textbf{ReAct}~\cite{yao2023react} --- interleaves reasoning traces with tool actions, demonstrating that explicit Reason$+$Act traces beat pure-reasoning or pure-action baselines. ReAct's structured tool-use format has become the basis for most modern function-calling implementations from OpenAI, Anthropic, and Google.
+
+\subsection{Model Context Protocol}
+
+\textbf{MCP}~\cite{anthropic2024mcp} --- open standard for connecting LLM applications to external data sources and tools. Released November 2024. Adopted by OpenAI (March 2025) and Google. Solves the ``M$\times$N problem'' of LLM $\times$ tool integration via a standard JSON-RPC client--server protocol. Three server primitives: Prompts, Resources, Tools.
+
+The present project uses MCPs for arXiv search and Wolfram Alpha computation. The MCP layer is the third tier in the system architecture (after frontier reasoners and local specialists).
+
+\subsection{Retrieval-Augmented Generation}
+
+\textbf{RAG}~\cite{lewis2020rag} --- the seminal ``Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks.'' Introduced the parametric $+$ non-parametric memory split: a pretrained seq2seq model (BART) for parametric knowledge, an external corpus (Wikipedia, indexed via Dense Passage Retrieval) for non-parametric. Set state-of-the-art on three open-domain QA benchmarks. The progenitor of an enormous downstream ecosystem.
+
+\subsection{Tool-augmented scientific reasoning}
+
+\textbf{SciAgent}~\cite{ma2024sciagent} --- tool-augmented LLMs for scientific reasoning, introducing the SciToolBench benchmark. Explicitly tests whether providing scientific tools improves LLM performance on domain-specific questions. Directly relevant to the MCP-augmentation Phase 4 of the present project.
+
+\section{AI for Scientific Discovery}
+
+\subsection{Landmark systems}
+
+\textbf{AlphaFold 3}~\cite{abramson2024alphafold3} --- joint Google DeepMind + Isomorphic Labs work; diffusion-based architecture predicting protein structures, protein--DNA/RNA complexes, post-translational modifications, ligands, and ions in a single unified model. \emph{Order-of-magnitude accuracy improvements over specialized prior tools.}
+
+\textbf{AlphaGeometry}~\cite{trinh2024alphageometry} --- neuro-symbolic geometry theorem prover trained from scratch on millions of synthetic theorems. Solves Olympiad-level geometry near gold-medalist standard. AlphaProof + AlphaGeometry 2 solved 4 of 6 IMO 2024 problems (silver-medal score).
+
+These works establish that narrow, well-engineered scientific AI systems can produce frontier-of-knowledge results. They illustrate a model the present project aspires to: domain-specialized systems beat generalist models on their home turf.
+
+\subsection{Surveys of LLMs in science}
+
+Zhang et al.~\cite{zhang2024scillmsurvey} catalog 260+ scientific LLMs across modalities (text, molecules, proteins), summarizing pretraining datasets, evaluation tasks, and gaps. The LLM4SR survey~\cite{zhang2025llm4sr} covers LLM use across hypothesis discovery, experiment planning, writing, and review. \textbf{80.9\% of 800+ surveyed published authors had used LLMs in their research workflow.}
+
+\section{Open-Weights Base Models}
+
+The current generation of open-weights base models forms the candidate pool for the project's specialist base:
+
+\begin{itemize}
+  \item \textbf{Llama 3}~\cite{dubey2024llama3} --- Meta's herd from 8B to 405B. The 405B model achieves GPT-4-class quality.
+  \item \textbf{Gemma 3}~\cite{gemmateam2025gemma3} --- Google's open-weights family with 1B, 4B, 12B, 27B variants. Multimodal. 128K context. \emph{The present project's working assumption is ``Gemma 4 31B''; falls back to Gemma 3 27B with no methodology change.}
+  \item \textbf{Qwen 2.5}~\cite{yang2024qwen25} --- Alibaba's open-weights family, especially strong at math reasoning. \emph{A leading candidate base model for any math-specialized future variant.}
+  \item \textbf{Phi-3}~\cite{abdin2024phi3} --- Microsoft's small-LLM family. Demonstrates that \emph{data curation $>$ parameter count}.
+  \item \textbf{Mixtral 8x7B}~\cite{jiang2024mixtral} --- Mistral's sparse Mixture-of-Experts. Apache 2.0 license.
+  \item \textbf{DeepSeek-V3}~\cite{deepseekv3} --- 671B MoE with 37B active per token. Achieves 88.5 MMLU, 75.9 MMLU-Pro, 59.1 GPQA. The strongest current open-source reasoner.
+\end{itemize}
+
+For a 31B-class domain specialist, the candidate pool is: Gemma 3 27B, Gemma 4 31B (if it exists), Qwen 2.5 32B, Llama 3.x in the 30B range. Gemma is the user's existing choice (already on disk via Ollama). Phase 2 should benchmark at least Gemma vs.\ Qwen on the eval before committing.
+
+\section{Evaluation Benchmarks}
+
+\subsection{General reasoning}
+
+\textbf{GPQA}~\cite{rein2023gpqa} --- Graduate-level ``Google-proof'' QA: 448 multiple-choice questions in biology, physics, chemistry written by domain PhDs. Domain experts score 65\%; non-expert validators score 34\% even with unrestricted web access. \emph{The current standard benchmark for scientific reasoning capability in frontier LLMs.}
+
+\textbf{MMLU-Pro}~\cite{wang2024mmlupro} --- extends MMLU with 10-option questions, removes trivial items, and adds reasoning-focused replacements. 12K+ questions across 14 domains including Biology, Chemistry, Computer Science, Math, Physics. Accuracy drops 16--33\% vs.\ MMLU, with much greater robustness to prompt variation.
+
+The present project's eval set will include MMLU-Pro physics + chemistry subsets as the out-of-domain reference, alongside the hand-curated GW-specific in-domain eval.
+
+\subsection{LLM-as-Judge evaluation}
+
+Beyond benchmarks, LLM-as-Judge protocols~\cite{zheng2023llmjudge} are increasingly used for scalable evaluation of subjective qualities. The present project uses LLM-as-Judge sparingly, preferring hand-graded rubrics for the small-$N$ eval set in Phase 0.
+
+\section{Information-Theoretic Perspectives}
+
+A smaller but important literature frames neural-network quantization in classical rate-distortion terms~\cite{informationbottleneck2020}. The objective is to minimize representation error (distortion) for a given codebook size (rate). Recent work establishes Gibbs-type variational formulations of rate-distortion that unify compression, quantization, and decoding as convex projections of continuous information onto discrete manifolds.
+
+\textbf{Why this matters for the present project}: the author's background research (GW SNR quantization) operates in rate-distortion territory. Connecting LLM-weight quantization to the same theoretical framework is a natural extension and is one of the project's potential theoretical contributions --- though the empirical/system contribution is the primary aim.
+
+\section{Synthesis --- Where the Gap Is}
+
+Mapping the literature against the present project's components:
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabularx}{\textwidth}{l c X}
+\toprule
+\textbf{Component} & \textbf{Covered?} & \textbf{Gap} \\
+\midrule
+Multi-agent LLM debate & Yes & None major \\
+LLM quantization at extreme bit-depths & Yes & Mostly studies single-model, single-task degradation \\
+Domain fine-tuning & Yes & Limited interaction with quantization \\
+LLM-as-Judge / verification & Yes & Always uses \emph{strong} judges; never small quantized specialists \\
+Quantization $\times$ reasoning & Emerging & One paper~\cite{liu2025quantmeetsreasoning}; doesn't study multi-agent verification \\
+Quantized specialist in multi-agent system & \textbf{No known prior work} & \textbf{The project's headline contribution} \\
+\bottomrule
+\end{tabularx}
+\caption{Coverage map: where the literature is dense, and where the gap is.}
+\end{table}
+
+The intellectual gap is specifically:
+
+\begin{quote}
+\itshape Does aggressive quantization of a domain-specialist fine-tune preserve enough capability for that specialist to act as an effective verifier in a heterogeneous multi-agent system --- and where on the bit-depth curve does that capability collapse?
+\end{quote}
+
+Each of the four ingredients (multi-agent, quantization, specialization, verification) is well-studied. \textbf{None of the published work combines all four}, which is what makes the project a coherent, citable, single-paper contribution rather than a re-implementation of an existing study.
+
+\subsection*{Adjacent open questions}
+
+Out of scope for the primary contribution, but worth flagging as candidates for follow-up work:
+
+\begin{enumerate}
+  \item Are quantization failures domain-correlated? (Liu et al.~\cite{liu2025quantmeetsreasoning} suggests yes, but only one domain studied.)
+  \item Does QAT recover the entire gap to FP16, or only part? (LLM-QAT shows recovery; not directly tested against multi-agent eval.)
+  \item Does merging multiple specialists (TIES / DARE) preserve per-domain accuracy?
+  \item Is verification-layer effectiveness a function of voice diversity?
+\end{enumerate}
+
+These are follow-up paper candidates, not primary contributions.
+
+\printbibliography[heading=bibnumbered, title={References}]
+
+\end{document}

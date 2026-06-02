@@ -1,0 +1,263 @@
+\documentclass[11pt]{article}
+\input{preamble.tex}
+
+\title{\bfseries Information-Preserving Quantization of Domain-Specialist Fine-Tunes for Verification in Multi-Agent Scientific Reasoning Systems\\[0.3em]\large Research Proposal}
+\author{Razeen Wasif\\\small Independent researcher\\\small \href{mailto:razeen.wasif66@gmail.com}{\nolinkurl{razeen.wasif66@gmail.com}}}
+\date{June 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent Multi-agent large language model (LLM) systems improve reasoning, factuality, and domain coverage over single-model baselines, but at substantial cost — running multiple frontier models per query is expensive and excludes researchers without API budgets. We propose a hybrid architecture in which frontier API models serve as primary reasoners while locally-hosted, fine-tuned, aggressively-quantized open-weights models act as a \emph{verification layer}, auditing domain-specific claims that frontier voices make. We hypothesize that aggressive quantization of a small domain-specialist fine-tune --- when used for verification rather than open-ended generation --- preserves enough domain-relevant knowledge to detect specific failure modes that frontier models systematically miss. Using Gemma-4-31B fine-tuned via LoRA on a gravitational-wave (GW) and signal-processing corpus, we will conduct a controlled ablation across six bit-depths (FP16, Q8, Q6, Q4, Q3, Q2) comparing post-training quantization (PTQ) and quantization-aware training (QAT). The contribution is threefold: (i) a system architecture for cost-efficient hybrid frontier--local scientific debate; (ii) a quantization-degradation curve identifying the practical floor of usable specialist-as-verifier capability; (iii) a comparative study of PTQ vs.\ QAT in the specialist-verifier regime.
+\end{abstract}
+
+\section{Background and Motivation}
+
+\subsection{The cost--quality bottleneck in multi-agent scientific AI}
+
+Multi-agent LLM systems are now a leading paradigm for AI-assisted scientific reasoning. Google's AI Co-Scientist~\cite{gottweis2025coscientist} --- six Gemini-2.0 agents in a closed-loop tournament --- demonstrated novel hypotheses in biomedical discovery. The ``Council'' and \texttt{/discover} modes of the author's prior engineering work implement debate-style multi-agent reasoning~\cite{du2023multiagent,wu2023autogen,hong2023metagpt} for code review and research-question deliberation. Across this paradigm, \emph{the per-query cost is dominated by frontier-model API calls}: each voice in an $N$-voice debate requires its own frontier inference.
+
+This cost structure has two consequences. First, it excludes researchers without API budgets --- a single \texttt{/discover} run can cost \$1--3 across seven frontier API calls. Second, it penalizes high-volume inner-loop operations: in Co-Scientist's tournament structure, Reflection and Ranking agents run dozens of times per cycle. Aggressive cost reduction would unlock single-graduate-student-budget access to scientific multi-agent systems --- a meaningful democratization of the methodology.
+
+\subsection{Why local quantized models are not (currently) drop-in replacements}
+
+The natural alternative --- replacing frontier models with local quantized models --- fails empirically. Frontier models on benchmarks like GPQA~\cite{rein2023gpqa} and MMLU-Pro~\cite{wang2024mmlupro} outperform 30B-class open-weights models by 15--30\% absolute on graduate-level scientific reasoning. The capability gap is real and disproportionately affects the \emph{generation} and \emph{novel reasoning} roles where breadth matters most.
+
+Recent work by Liu et al.~\cite{liu2025quantmeetsreasoning} showed that quantization disproportionately damages mathematical reasoning compared to general language ability: AWQ~\cite{lin2023awq} and GPTQ~\cite{frantar2022gptq} introduce up to 32.39\% accuracy degradation on math benchmarks, while showing only mild impact on commonsense tasks. \emph{Quantization is not a free cost reduction for reasoning-heavy work.}
+
+\subsection{The architectural insight}
+
+Frontier models and quantized specialists are not in direct competition; they have complementary failure modes:
+
+\begin{itemize}
+  \item \textbf{Frontier models} reason broadly but confidently hallucinate domain specifics --- including arithmetic slips, wrong scaling laws, and misremembered constants. The author has directly observed these failure modes in \texttt{/discover} runs over the GW-quantization research domain.
+  \item \textbf{Quantized domain specialists} have narrower knowledge but can be tuned to \emph{flag} domain-specific errors without needing to \emph{generate} novel content.
+\end{itemize}
+
+This suggests a hybrid: frontier reasoners produce candidate positions; a quantized specialist \emph{verifies} their domain-specific claims. The specialist is not asked to do what it cannot (reason novelty); it is asked only to recognize what it has been trained on (correctness of specific claims in its domain).
+
+\subsection{The quantization research opportunity}
+
+A specialist's value to the system depends on how much capability survives quantization. Liu et al.~\cite{liu2025quantmeetsreasoning} showed that small-scale fine-tuning ($\sim$545 examples) can restore much of the quantization damage on a narrow reasoning task. \emph{What is unknown} is how that finding extends to the specialist-as-verifier setting in a multi-agent context --- where the specialist is asked structured claim-evaluation questions rather than open-ended math problems.
+
+If the quantization-degradation curve has a knee at Q4 or below, the system architecture becomes practical for any researcher with consumer-grade hardware. If the curve is monotonic-with-no-knee, the result is sobering but informative for the field. \textbf{Either result is publishable.}
+
+\section{Research Questions}
+
+The project addresses four nested questions in decreasing scope.
+
+\question{RQ1 (system-level, primary)}
+Does augmenting a frontier-model multi-agent reasoning system with a quantized domain-specialist verification layer improve domain-specific output quality at a meaningful improvement in cost--quality Pareto frontier?
+
+\textit{Operationalization}: measure absolute and relative improvement in eval rubric scores (5-dimensional, 0--3 each) on a held-out set of GW-domain research questions, comparing (a)~frontier-only, (b)~frontier $+$ specialist FP16, (c)~frontier $+$ specialist at each of Q8/Q6/Q4/Q3/Q2, (d)~all of the above $+$ MCP grounding.
+
+\question{RQ2 (quantization curve, headline contribution)}
+What is the shape of the quality-vs-bit-depth degradation curve for a domain-specialist verifier, and at what bit-depth does the specialist stop being useful?
+
+\textit{Operationalization}: measure eval rubric scores per bit-depth, identify discontinuities (``knees''), characterize \emph{which classes of errors} the specialist starts missing at each bit-depth.
+
+\question{RQ3 (PTQ vs.\ QAT)}
+Does quantization-aware training~\cite{liu2023llmqat} extend the useful bit-depth range beyond post-training quantization by a meaningful margin in the specialist-verifier regime?
+
+\textit{Operationalization}: at four critical bit-depths (Q8, Q4, Q3, Q2), train QAT variants alongside PTQ variants. Quantify the bit-depth headroom QAT provides.
+
+\question{RQ4 (interaction with tool use)}
+How does augmenting the verification layer with external tool use (arXiv MCP, Wolfram MCP) interact with specialist quantization --- is it additive, multiplicative, or substitutive?
+
+\textit{Operationalization}: $2 \times 2 \times 6$ ablation (specialist on/off $\times$ MCP on/off $\times$ 6 bit-depths); per-failure-class analysis of where each layer catches errors.
+
+\section{Hypotheses (Pre-Registered)}
+
+We commit to the following predictions to be evaluated against Phase 3--4 results:
+
+\begin{description}
+  \item[H1] Adding an un-quantized specialist (FP16) to the frontier-only baseline improves GW-domain eval scores by $\geq$10\% absolute.
+  \item[H2] The quantization-degradation curve has a knee between Q4 and Q3 (Q8--Q4 roughly equivalent; Q3 and below show steep decline).
+  \item[H3] QAT extends the usable bit-depth range by approximately one bit-depth versus PTQ (QAT-Q3 $\approx$ PTQ-Q4 in usefulness).
+  \item[H4] MCP augmentation and specialist verification are \emph{complementary} (different error classes), so $\text{frontier}{+}\text{MCP}{+}\text{specialist} > \text{frontier}{+}\text{MCP} > \text{frontier}{+}\text{specialist} > \text{frontier}$.
+\end{description}
+
+\textbf{Null-results explicitly accepted}: H1 failure would falsify the entire specialist-verifier concept --- itself a publishable finding. H2 failure (monotonic degradation, no knee) is the most likely \emph{boring} outcome but still publishable as a characterization of practical limits. H3 failure (QAT $=$ PTQ) would be an important negative result for QAT advocates in the specialist regime.
+
+\section{Methodology}
+
+\subsection{Base model and fine-tuning}
+
+\textbf{Base}: Gemma-4-31B~\cite{gemmateam2025gemma3} (or fallback Gemma-3-27B if 31B is not actually available --- methodology is base-agnostic).
+
+\textbf{Fine-tuning}: LoRA~\cite{hu2021lora} via HuggingFace PEFT (or Unsloth for speed). Initial hyperparameters: rank 64, alpha 16, learning rate $1 \times 10^{-4}$, batch size 4 with gradient accumulation 4, target modules \{q\_proj, k\_proj, v\_proj, o\_proj, gate\_proj, up\_proj, down\_proj\}. Hyperparameters refined in Phase 2 via held-out eval. We will also benchmark DoRA~\cite{liu2024dora} against LoRA as a candidate improvement.
+
+\textbf{Corpus} for the GW-quantization specialist:
+\begin{itemize}
+  \item arXiv abstracts from \texttt{gr-qc}, \texttt{astro-ph.IM}, \texttt{eess.SP} (last 5 years, $\sim$30K abstracts; full text where OA permits)
+  \item Author's existing literature review on GW $+$ quantization SNR degradation
+  \item Author's unpublished derivations and notes (highest per-token value because not in any frontier training set)
+  \item Selected textbook sections (Maggiore; Creighton \& Anderson)
+  \item General instruction data (FLAN/Alpaca, 20--30\% mix) to mitigate catastrophic forgetting~\cite{luo2023catastrophic}
+\end{itemize}
+
+\textbf{Target corpus size}: 50--150M tokens after deduplication. Phase 2 will validate this is sufficient via held-out perplexity.
+
+\subsection{Quantization protocols}
+
+\textbf{Post-Training Quantization (PTQ)}: GGUF formats via llama.cpp~\cite{gerganov2023llamacpp}: FP16 (reference), Q8\_0, Q6\_K, Q4\_K\_M, Q3\_K\_M, Q2\_K.
+
+\textbf{Quantization-Aware Training (QAT)}: LLM-QAT methodology~\cite{liu2023llmqat} --- synthetic data distillation from the FP16-fine-tuned teacher; quantize during training; weights, activations, and KV cache. Train at four critical bit-depths (Q8, Q4, Q3, Q2) --- skip intermediates for time.
+
+\subsection{Verification-layer architecture}
+
+The verifier operates on extracted claims, not whole positions:
+\begin{enumerate}
+  \item Frontier voice produces a position.
+  \item A \emph{claim extractor} (lightweight frontier-model call) parses the position into a JSON list of quantitative or factual claims.
+  \item For each claim, the specialist outputs \{verdict $\in$ \{\textsc{consistent}, \textsc{inconsistent}, \textsc{uncertain}\}, reasoning, suggested\_probe $\in$ \{arxiv, wolfram, code, none\}\}.
+  \item Suggested probes are dispatched to MCPs~\cite{anthropic2024mcp} (Phase 4).
+  \item Annotated position is forwarded to the Synthesist for final brief generation.
+\end{enumerate}
+
+This deliberately keeps the specialist's task \emph{structured and bounded}. The hypothesis is that a small quantized model can do ``evaluate this claim against my domain training'' even when it cannot do ``generate a novel hypothesis.''
+
+\subsection{Evaluation}
+
+\textbf{Primary eval set}: 25 hand-curated research-question briefs spanning GW physics (in-domain), general physics (adjacent), CS/ML (out-of-domain). Manually scored against a 5-dimensional rubric (factual correctness, math correctness, citation quality, novelty, structural completeness), each scored 0--3. Rubric reliability validated via blind re-grade at 7-day interval (target Cohen's $\kappa \geq 0.6$) and peer blind-grade on 5-item subset.
+
+\textbf{Secondary eval set}: MMLU-Pro~\cite{wang2024mmlupro} physics + chemistry subsets (10 questions each) as the out-of-domain reference, providing a general-reasoning anchor independent of the hand-curated GW set.
+
+\textbf{Per-cell sample size}: 25 (in-domain) + 20 (MMLU-Pro). Bootstrap confidence intervals reported for all key comparisons. Rubric scoring blind to configuration; order randomized.
+
+\subsection{Ablation matrix}
+
+Full factorial: 2 (specialist on/off) $\times$ 6 (bit-depth, including FP16) $\times$ 2 (MCP on/off) $\times$ 2 (domain). In practice, $\sim$30 cells filled (some combinations uninformative). Each cell $\times$ $\sim$25 evals $=$ $\sim$750 total grading operations, manageable within the 7-week timeline.
+
+\subsection{Statistical analysis}
+
+Per-cell: mean rubric score per dimension, with bootstrap 95\% CIs. Pairwise comparisons: paired comparison (same eval items) between cells; report effect size + $p$-value with Bonferroni-corrected $\alpha = 0.05/k$ for $k$ comparisons. Quantization curves: scores plotted vs.\ effective bits per parameter, with shaded CI band.
+
+\subsection{Reproducibility}
+
+All artifacts will be open-sourced: LoRA adapter weights (HuggingFace Hub), quantized GGUF variants (HuggingFace Hub), eval set + rubric + scoring scripts (GitHub), training and inference scripts (GitHub), frozen Python environment (\texttt{requirements-lock.txt}), and compute logs (GPU hours, peak memory).
+
+\section{Expected Contributions}
+
+\subsection{Empirical}
+\begin{itemize}
+  \item First controlled quantization sweep of a domain-specialist verifier in a multi-agent context (across 6 bit-depths, PTQ + QAT, both in-domain and out-of-domain evaluation).
+  \item Cost--quality Pareto frontier for hybrid frontier + local-specialist systems on scientific reasoning tasks.
+  \item Per-error-class degradation profile: which kinds of errors the specialist starts missing at each bit-depth.
+\end{itemize}
+
+\subsection{Methodological}
+\begin{itemize}
+  \item Reproducible eval harness for multi-agent scientific reasoning systems, with hand-graded rubric methodology + reliability validation.
+  \item Claim-extractor $+$ verifier interface design for plugging local specialists into existing multi-agent frameworks.
+\end{itemize}
+
+\subsection{System / engineering}
+\begin{itemize}
+  \item Open-source verification layer implementation for Council and \texttt{/discover}.
+  \item MCP-augmented verifier wiring (arXiv + Wolfram).
+  \item Per-domain specialist artifacts (starting with GW, extensible).
+\end{itemize}
+
+\subsection{Connections to the author's existing research}
+The project directly extends the author's prior work on quantization-induced SNR degradation in GW trigger pipelines from \emph{detector signal quantization} to \emph{model weight quantization}, using a unified rate-distortion framework. This makes the project a coherent thesis-portfolio piece rather than a one-off engineering exercise.
+
+\section{Evaluation Plan and Decision Gates}
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabularx}{\textwidth}{lXXX}
+\toprule
+\textbf{Phase} & \textbf{Decision gate} & \textbf{Pass} & \textbf{Fail action} \\
+\midrule
+0 & Rubric reliability & Cohen's $\kappa \geq 0.6$ & Extend 1 week; commit even if imperfect \\
+1 & Failure-mode hypothesis & $\geq$1 class addressable by specialist & Pivot to MCP-only architecture \\
+2 & FP16 specialist viability & $\geq$10\% absolute improvement on GW eval & Diagnose; if no fix, pivot to MCP-only \\
+3 & Quantization curve shape & Knee identifiable OR clear monotone curve & None --- either is publishable \\
+4 & MCP $\times$ specialist interaction & Measurable effect (positive or negative) & None --- descriptive only \\
+\bottomrule
+\end{tabularx}
+\caption{Per-phase decision gates and contingencies. The project has multiple paths to publishable outcomes; the only true failure mode is failing to produce any of them --- which the Phase 0--1 design specifically guards against.}
+\end{table}
+
+\section{Timeline}
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{c l l l}
+\toprule
+\textbf{Week} & \textbf{Phase} & \textbf{Milestone} & \textbf{Output} \\
+\midrule
+0 & Prep   & Environment ready             & Locked deps, GPU verified, venue picked \\
+1 & P0     & Eval harness locked           & Rubric v1, 25 briefs, $\kappa$ check \\
+2 & P1     & Baseline characterized        & Failure-mode taxonomy \\
+3 & P2.1   & Specialist data prepared      & Training corpus + config \\
+4 & P2.2   & FP16 specialist validated     & LoRA + Phase 2 writeup \\
+5 & P3.1   & PTQ sweep complete            & 6 quantized variants + curve \\
+6 & P3.2   & QAT sweep + comparison        & Headline figure + paper draft v1 \\
+7 & P4     & MCP integration               & Final ablation + paper draft v2 \\
+8 & Submit & Paper submitted               & Workshop submission \\
+\bottomrule
+\end{tabular}
+\caption{Eight-week timeline from Week 0 prep to workshop submission. Detailed weekly todos in the companion \texttt{WEEKLY\_PLAN.md}.}
+\end{table}
+
+\section{Resources Required}
+
+\begin{description}
+  \item[Compute] $1\times$ A100 80GB rental (RunPod / vast.ai / Modal): $\sim$60--100 GPU-hours across all phases. Estimated cost \$100--250. Local RTX 4090 (24GB) for eval and FP16/Q4 inference: $\sim$50 GPU-hours, free.
+  \item[API budget] Claude (Opus 4.7, Sonnet 4.6) + Gemini (3.5 Pro, Flash): $\sim$\$100--150 across all phases. Within existing subscription tiers.
+  \item[Storage] $\sim$150 GB for model variants + corpus + eval. Already available.
+  \item[Human time] $\sim$135--200 focused hours over 8 weeks: $\sim$30\% eval design + grading, $\sim$30\% training + experiments, $\sim$40\% writing.
+  \item[Tooling] Ollama, HuggingFace \texttt{transformers} + \texttt{peft} (or Unsloth), \texttt{llama.cpp} for GGUF, \texttt{vllm} for serving, matplotlib for figures.
+\end{description}
+
+\section{Risks and Mitigations}
+
+\begin{longtable}{p{0.32\textwidth} p{0.10\textwidth} p{0.16\textwidth} p{0.34\textwidth}}
+\toprule
+\textbf{Risk} & \textbf{Likelihood} & \textbf{Impact} & \textbf{Mitigation} \\
+\midrule
+\endhead
+Phase 0 rubric never reaches $\kappa \geq 0.6$ & medium & blocks downstream & hard time-box at 2 weeks; commit if imperfect; document limitation \\
+Specialist FP16 fails Gate 2 (H1 false) & medium-low & invalidates main hypothesis & diagnose (data quantity, base model, prompt design); if irreducible, paper becomes negative result \\
+Quantization curve has no knee & medium & weaker paper & reframe as ``limits of small-model specialization under PTQ''; still publishable \\
+Gemma 4 31B does not actually exist & low & switch base model & methodology is base-agnostic; rerun with Gemma 3 27B or Qwen 2.5 32B~\cite{yang2024qwen25} \\
+Local GPU insufficient & medium & inference must be rented & Q4\_K\_M of 31B fits in 24GB; only training needs rental, budgeted \\
+MCP layer breaks fault tolerance & medium & Phase 4 incomplete & benchmark MCP latencies before integration; raise timeouts; cache aggressively \\
+Catastrophic forgetting in fine-tune & medium & specialist loses general reasoning & mix 20--30\% general instruction data; validate against MMLU-Pro subset each epoch~\cite{luo2023catastrophic} \\
+Three months of infra, no experiments & medium-high & highest risk & time-box hard at every phase; weekly writeups force discipline \\
+Sample size insufficient for significance & medium & inconclusive results & $n=25$ + $n=20$; bootstrap CIs to detect noise; report inconclusive findings honestly \\
+Workshop deadline missed & low & delayed publication & flexibility across multiple targets (NeurIPS ENLSP, ICLR ME-FoMo, ICML AI4Science); blog/preprint always available \\
+Goodhart on the rubric & low & inflated results & held-out subset never used during prompt iteration; results on held-out only \\
+\bottomrule
+\end{longtable}
+
+\section{Ethics, Open Science, and Reproducibility Commitments}
+
+\begin{itemize}
+  \item \textbf{No human-subject data.} All training corpus is public arXiv + open-access textbooks + author's own notes.
+  \item \textbf{No deceptive deployment.} The system is a research artifact; no claims will be made about safety for clinical, financial, or other high-stakes uses.
+  \item \textbf{Open release} of all artifacts: code, weights, eval set, scoring scripts, hyperparameter logs.
+  \item \textbf{Reporting of negative results}: if Phase 2 fails Gate 2, the failure mode and diagnostic process will be documented and submitted as a negative-results paper.
+  \item \textbf{Pre-registration}: the four hypotheses in Section 3 are pre-registered. Any post-hoc hypotheses introduced after seeing results will be clearly labeled as exploratory.
+  \item \textbf{Compute disclosure}: all GPU hours and API costs reported in the paper's reproducibility section.
+\end{itemize}
+
+\section{Beyond the First Paper}
+
+If Phases 2--4 succeed, three natural follow-ups become available:
+\begin{enumerate}
+  \item \textbf{Multi-specialist scaling study}: does the quantization curve generalize across domains, or is it domain-specific?
+  \item \textbf{Closed-loop Co-Scientist with quantized verifiers}: integrate the verification layer into the full 6-agent hypothesis-tournament architecture inspired by~\cite{gottweis2025coscientist}.
+  \item \textbf{Quantization-aware specialization methodology}: develop new training recipes that produce specialists \emph{designed} to survive aggressive quantization, rather than first training FP16 then degrading.
+\end{enumerate}
+
+Each follow-up could be a self-contained paper. The present proposal commits only to the first.
+
+\printbibliography[heading=bibnumbered, title={References}]
+
+\end{document}

@@ -1,0 +1,82 @@
+% Shared preamble for proposal.tex and literature_review.tex.
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage[parfill]{parskip}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{makecell}
+\usepackage{fancyvrb}
+\usepackage{listings}
+\usepackage{caption}
+
+\definecolor{linkcolor}{HTML}{1F4E79}
+\definecolor{citecolor}{HTML}{0B5394}
+\definecolor{urlcolor}{HTML}{1F4E79}
+
+\usepackage[
+  colorlinks=true,
+  linkcolor=linkcolor,
+  citecolor=citecolor,
+  urlcolor=urlcolor,
+  bookmarksopen=true,
+  bookmarksnumbered=true,
+  breaklinks=true,
+]{hyperref}
+\usepackage[capitalize]{cleveref}
+
+\usepackage[
+  backend=biber,
+  style=numeric-comp,
+  sorting=none,
+  maxnames=4,
+  minnames=1,
+  maxbibnames=10,
+  giveninits=true,
+  uniquename=init,
+]{biblatex}
+\addbibresource{references.bib}
+
+% Tidy verbatim blocks for ASCII diagrams.
+\fvset{
+  fontsize=\scriptsize,
+  frame=single,
+  framesep=2mm,
+  rulecolor=\color{black!20},
+  numbers=none,
+  baselinestretch=0.95,
+}
+
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  frame=single,
+  framerule=0.4pt,
+  rulecolor=\color{black!20},
+  breaklines=true,
+  showstringspaces=false,
+  columns=fullflexible,
+  keepspaces=true,
+}
+
+\setlist[itemize]{leftmargin=*, itemsep=2pt, topsep=4pt}
+\setlist[enumerate]{leftmargin=*, itemsep=2pt, topsep=4pt}
+\setlist[description]{leftmargin=*, itemsep=3pt, topsep=4pt, style=nextline}
+
+\titleformat{\section}{\Large\bfseries\sffamily}{\thesection}{1em}{}
+\titleformat{\subsection}{\large\bfseries\sffamily}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries\sffamily}{\thesubsubsection}{1em}{}
+\titlespacing*{\section}{0pt}{2.5ex plus 1ex minus .2ex}{1.3ex plus .2ex}
+\titlespacing*{\subsection}{0pt}{2ex plus 1ex minus .2ex}{1ex plus .2ex}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\N}{\mathbb{N}}
+\newcommand{\question}[1]{\par\medskip\noindent\textbf{#1}\par\medskip}

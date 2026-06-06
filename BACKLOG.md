@@ -255,3 +255,6 @@ Currently council is overkill for explanations. But "explain this codebase" coul
 
 ### True N×M grid TUI with full per-voice panes
 Current grid is a 2- or 3-column layout sharing the `AgentProgressLine` row style. Side-by-side panes per voice (full `VerboseAgentTranscript` in each cell) is the remaining P2-UI work. Was noted in HANDOFF; deferred because the current grid covers ~70% of the UX goal.
+
+### Animated stage transitions in council mode session view
+Currently the session view in `COUNCIL_MODE_REDESIGN.md` v1 does hard cuts between stages (proposal → synthesis → execution → review → done). A brief 100–200ms fade or color-flash highlighting the new stage in the top bar would make the transitions feel less abrupt and reinforce the multi-stage mental model. Deferred from v1 because (a) Ink's animation primitives are limited compared to web animations and (b) keeping the v1 surface minimal lets the rest of the redesign ship by the planned Sunday. Revisit once the v1 session view has had a few weeks of use — animated transitions only land if the hard-cut version actually feels jarring in practice.

@@ -133,7 +133,10 @@ export function ThemePicker({
         value: "dark-ansi" as const 
       }, {
         label: "Light mode (ANSI colors only)",
-        value: "light-ansi" as const 
+        value: "light-ansi" as const
+      }, {
+        label: "Onyx Orange (amber accent, dark)",
+        value: "onyx-orange" as const
       },],
     [],
   )

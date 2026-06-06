@@ -89,6 +89,7 @@ export type Theme = {
 }
 
 export const THEME_NAMES = [
+  'onyx-orange',
   'dark',
   'light',
   'light-daltonized',
@@ -595,6 +596,98 @@ const darkDaltonizedTheme: Theme = {
   rainbow_violet_shimmer: 'rgb(230,180,210)',
 }
 
+/**
+ * Onyx Orange — kanagawa-flavored dark palette with amber accent.
+ *
+ * Modeled on `~/Onyx`'s `obsidian_dark` theme (Rust + ratatui), with
+ * the Onyx purple accent (#a78bfa) replaced by amber (#f59e0b). See
+ * `TUI_REDESIGN.md` §2 for the full Onyx→Council token map.
+ *
+ * Phase 1 of the redesign: palette only. Layout work (status pane,
+ * agent sidebar, focus management) lives in later phases.
+ */
+const onyxOrangeTheme: Theme = {
+  // Accents — amber primary
+  autoAccept: 'rgb(245,158,11)', // Onyx accent (was purple, now amber)
+  bashBorder: 'rgb(247,118,142)', // Onyx code pink — distinguishes bash blocks
+  claude: 'rgb(215,119,87)', // brand-protected: claude orange
+  claudeShimmer: 'rgb(235,159,127)',
+  claudeBlue_FOR_SYSTEM_SPINNER: 'rgb(147,165,255)',
+  claudeBlueShimmer_FOR_SYSTEM_SPINNER: 'rgb(177,195,255)',
+  permission: 'rgb(122,162,247)', // Onyx link blue — distinct from accent
+  permissionShimmer: 'rgb(162,192,255)',
+  planMode: 'rgb(125,207,255)', // Onyx info
+  ide: 'rgb(122,162,247)', // Onyx link
+  promptBorder: 'rgb(58,58,77)', // Onyx border
+  promptBorderShimmer: 'rgb(88,88,107)',
+  text: 'rgb(220,215,186)', // Onyx fg — warm cream
+  inverseText: 'rgb(30,30,36)', // Onyx bg
+  inactive: 'rgb(155,151,168)', // Onyx fg_dim
+  inactiveShimmer: 'rgb(195,191,208)',
+  subtle: 'rgb(110,106,124)', // Onyx fg_subtle
+  suggestion: 'rgb(122,162,247)', // Onyx link
+  remember: 'rgb(122,162,247)',
+  background: 'rgb(0,204,204)', // unchanged — bright cyan, used as semantic color
+  // Semantic
+  success: 'rgb(158,206,106)', // Onyx success
+  error: 'rgb(247,118,142)', // Onyx error / code
+  warning: 'rgb(224,175,104)', // Onyx warning
+  merged: 'rgb(245,158,11)', // matches autoAccept (amber)
+  warningShimmer: 'rgb(254,205,134)',
+  // Diff — kanagawa-flavored
+  diffAdded: 'rgb(34,72,33)',
+  diffRemoved: 'rgb(95,32,42)',
+  diffAddedDimmed: 'rgb(50,72,50)',
+  diffRemovedDimmed: 'rgb(72,42,52)',
+  diffAddedWord: 'rgb(56,166,96)',
+  diffRemovedWord: 'rgb(179,89,107)',
+  // Agent colors — semantic tokens, unchanged (per-agent identity, not theme accent)
+  red_FOR_SUBAGENTS_ONLY: 'rgb(220,38,38)',
+  blue_FOR_SUBAGENTS_ONLY: 'rgb(37,99,235)',
+  green_FOR_SUBAGENTS_ONLY: 'rgb(22,163,74)',
+  yellow_FOR_SUBAGENTS_ONLY: 'rgb(202,138,4)',
+  purple_FOR_SUBAGENTS_ONLY: 'rgb(147,51,234)',
+  orange_FOR_SUBAGENTS_ONLY: 'rgb(234,88,12)',
+  pink_FOR_SUBAGENTS_ONLY: 'rgb(219,39,119)',
+  cyan_FOR_SUBAGENTS_ONLY: 'rgb(8,145,178)',
+  // Grove + Chrome — unchanged
+  professionalBlue: 'rgb(106,155,204)',
+  chromeYellow: 'rgb(251,188,4)',
+  // TUI V2 — Onyx surfaces
+  clawd_body: 'rgb(215,119,87)', // brand-protected
+  clawd_background: 'rgb(30,30,36)', // Onyx bg
+  userMessageBackground: 'rgb(38,38,49)', // Onyx bg_alt
+  userMessageBackgroundHover: 'rgb(58,58,77)', // Onyx bg_sel
+  messageActionsBackground: 'rgb(46,46,58)',
+  selectionBg: 'rgb(58,58,77)', // Onyx bg_sel
+  bashMessageBackgroundColor: 'rgb(48,40,46)',
+  memoryBackgroundColor: 'rgb(38,52,58)',
+  // Rate limit — amber
+  rate_limit_fill: 'rgb(245,158,11)',
+  rate_limit_empty: 'rgb(74,52,18)',
+  // Fast mode — amber (globally consistent with accent)
+  fastMode: 'rgb(245,158,11)',
+  fastModeShimmer: 'rgb(255,193,77)',
+  // Brief labels
+  briefLabelYou: 'rgb(122,162,247)', // Onyx link blue
+  briefLabelClaude: 'rgb(215,119,87)', // brand orange
+  // Rainbow shimmer (ultrathink) — unchanged, designed to be rainbow
+  rainbow_red: 'rgb(235,95,87)',
+  rainbow_orange: 'rgb(245,139,87)',
+  rainbow_yellow: 'rgb(250,195,95)',
+  rainbow_green: 'rgb(145,200,130)',
+  rainbow_blue: 'rgb(130,170,220)',
+  rainbow_indigo: 'rgb(155,130,200)',
+  rainbow_violet: 'rgb(200,130,180)',
+  rainbow_red_shimmer: 'rgb(250,155,147)',
+  rainbow_orange_shimmer: 'rgb(255,185,137)',
+  rainbow_yellow_shimmer: 'rgb(255,225,155)',
+  rainbow_green_shimmer: 'rgb(185,230,180)',
+  rainbow_blue_shimmer: 'rgb(180,205,240)',
+  rainbow_indigo_shimmer: 'rgb(195,180,230)',
+  rainbow_violet_shimmer: 'rgb(230,180,210)',
+}
+
 export function getTheme(themeName: ThemeName): Theme {
   switch (themeName) {
     case 'light':
@@ -607,8 +700,11 @@ export function getTheme(themeName: ThemeName): Theme {
       return lightDaltonizedTheme
     case 'dark-daltonized':
       return darkDaltonizedTheme
-    default:
+    case 'dark':
       return darkTheme
+    case 'onyx-orange':
+    default:
+      return onyxOrangeTheme
   }
 }
 

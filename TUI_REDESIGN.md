@@ -230,12 +230,34 @@ No code is written until you sign off on this plan.
 
 ---
 
-## 9. Open questions
+## 9. Decisions (resolved)
 
-1. **Light variant?** Onyx ships an `obsidian_light` theme. Do you also want `onyx-orange-light`, or dark-only?
-2. **Daltonized variant?** Council currently maintains daltonized + ansi variants of every theme. Should `onyx-orange` get the same treatment, or is it dark-only?
-3. **Cursor styling?** Onyx uses a blinking `▏` cursor with the accent color. Council uses Ink's default. Cursor swap is a small addition to Phase 1.
-4. **Agent sidebar — interactive or read-only?** Onyx's file tree is interactive (arrow keys navigate, Enter opens). Should clicking an agent entry switch the center pane's focus to that agent's full output, or is the sidebar purely informational?
-5. **Status pane content priority?** When the right pane collapses to a single bottom line at narrow widths, which 2-3 fields survive? My guess: tokens, cost, elapsed.
+Q1–Q5 resolved 2026-06-06. Recorded here so future-you doesn't re-litigate them.
 
-Please confirm or override before I start Phase 1.
+1. **Light variant** → **dark only.** Doubling the palette work for an unused mode is over-engineering. Add later if the user actually switches to light terminals.
+2. **Daltonized + ANSI variants** → **skip both.** No color vision deficiency in the user; modern terminal truecolor support is universal in the user's environment. Add later if either becomes a real need.
+3. **Cursor styling** → **deferred to Phase 2.** Initial Q3 answer ("5-line addition to Phase 1") was incorrect — Council's `TextInput.tsx` cursor uses `chalk.inverse` with branches for voice-recording waveform and accessibility mode. Theme-coupling the cursor requires adding a theme token + threading it through `useTextInput`'s `invert` handler. Cleaner to bundle with Phase 2's chrome polish. On `onyx-orange`, `chalk.inverse` against the new dark bg still produces a clearly-visible cursor block.
+4. **Agent sidebar (Phase 4)** → **read-only initially.** Interactivity (Enter to navigate to that agent's output anchor in the chat) becomes part of Phase 5's focus-management work, where the global focus controller already exists. Don't entangle Phase 4 scope with focus plumbing.
+5. **Status-pane collapse priority** → **cost · elapsed · agent-progress.** When the right column collapses to a single bottom line at narrow widths, those three survive. Tokens and model demoted to the expanded view only.
+
+   Collapsed format:
+   ```
+    ▎ $0.18 · 7m 22s · 4/7 done · running: implementer, skeptic
+   ```
+   The "running:" tail truncates with ellipsis as width shrinks.
+
+## 10. Phase 1 status — shipped
+
+Landed in this branch:
+
+- `src/utils/theme.ts` — added `onyxOrangeTheme` constant (~70 tokens) + `'onyx-orange'` in `THEME_NAMES` + `getTheme()` dispatch
+- `src/components/ThemePicker.tsx` — new entry in the picker list
+
+Not done (deferred to Phase 2):
+
+- Cursor styling (see Q3 above)
+- `COUNCIL.md` documentation of the new theme — discoverable via the existing picker
+
+Verification: `bun run build` clean, ThemePicker test green, type-check clean on changed files.
+
+Switch with `/theme onyx-orange` or via the picker.

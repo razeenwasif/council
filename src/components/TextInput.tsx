@@ -86,6 +86,13 @@ export default function TextInput(props: Props): React.ReactNode {
       b: 128
     } : hueToRgb(hue);
     invert = () => chalk.rgb(r, g, b)(BARS[barIndex]!);
+  } else if (theme === 'onyx-orange') {
+    // Amber cursor block matching the Onyx-style accent. SGR 5 (slow blink)
+    // wrapped manually since chalk does not expose a blink modifier;
+    // degrades gracefully on terminals that ignore the blink code — the
+    // amber bg always shows. Black foreground for high contrast.
+    invert = (text: string) =>
+      `\x1b[5m${chalk.bgRgb(245, 158, 11).black(text)}\x1b[25m`;
   } else {
     invert = chalk.inverse;
   }

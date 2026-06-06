@@ -102,7 +102,7 @@ export function StatusBar({
 
   return (
     <Box width="100%" paddingLeft={1}>
-      <Text color="rgb(245,158,11)">▎ </Text>
+      <Text color="rgb(255,106,0)">▎ </Text>
       <Text color="inactive" dimColor>
         {segments.join(' · ')}
       </Text>

@@ -608,7 +608,7 @@ const darkDaltonizedTheme: Theme = {
  */
 const onyxOrangeTheme: Theme = {
   // Accents — amber primary
-  autoAccept: 'rgb(245,158,11)', // Onyx accent (was purple, now amber)
+  autoAccept: 'rgb(255,106,0)', // Onyx accent (was purple, now amber)
   bashBorder: 'rgb(247,118,142)', // Onyx code pink — distinguishes bash blocks
   claude: 'rgb(215,119,87)', // brand-protected: claude orange
   claudeShimmer: 'rgb(235,159,127)',
@@ -632,7 +632,7 @@ const onyxOrangeTheme: Theme = {
   success: 'rgb(158,206,106)', // Onyx success
   error: 'rgb(247,118,142)', // Onyx error / code
   warning: 'rgb(224,175,104)', // Onyx warning
-  merged: 'rgb(245,158,11)', // matches autoAccept (amber)
+  merged: 'rgb(255,106,0)', // matches autoAccept (amber)
   warningShimmer: 'rgb(254,205,134)',
   // Diff — kanagawa-flavored
   diffAdded: 'rgb(34,72,33)',
@@ -663,10 +663,10 @@ const onyxOrangeTheme: Theme = {
   bashMessageBackgroundColor: 'rgb(48,40,46)',
   memoryBackgroundColor: 'rgb(38,52,58)',
   // Rate limit — amber
-  rate_limit_fill: 'rgb(245,158,11)',
+  rate_limit_fill: 'rgb(255,106,0)',
   rate_limit_empty: 'rgb(74,52,18)',
   // Fast mode — amber (globally consistent with accent)
-  fastMode: 'rgb(245,158,11)',
+  fastMode: 'rgb(255,106,0)',
   fastModeShimmer: 'rgb(255,193,77)',
   // Brief labels
   briefLabelYou: 'rgb(122,162,247)', // Onyx link blue

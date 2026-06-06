@@ -319,3 +319,63 @@ Scope cut: the original Phase 3 plan was "full right-column status pane that col
 - Width-based switch between bar and pane modes
 
 Effort: ~2h actual on Phase 3a (vs. 5–8h budgeted for the full Phase 3). Phase 3b will be its own pass when scheduled.
+
+## 13. Phase 3b status — full right-column pane
+
+Ships the wide-terminal expanded status pane that complements Phase 3a's bottom bar. Theme-gated to `onyx-orange`, width-gated to `STATUS_PANE_MIN_WIDTH = 120` cols.
+
+**Implementation choice** — external wrap at REPL level (not modifying FullscreenLayout):
+
+After auditing `FullscreenLayout.tsx` (636 LOC, internal vertical column layout with React-Compiler-generated cache slots `_c(47)`), the two viable paths were (A) adding a `rightPane` prop to FullscreenLayout, or (B) wrapping FullscreenLayout in a row layout at the REPL level. Path A required growing the compiler cache and editing dense generated code; Path B leaves FullscreenLayout untouched at the cost of one cosmetic glitch.
+
+**What landed**:
+
+- `src/components/StatusPane.tsx` (new, ~130 LOC) — fixed-width right-column box with left amber border. Shows cost (highlighted in amber) / tokens / elapsed / running, each on its own row with right-aligned values. Width = `STATUS_PANE_WIDTH` (22 cols). Hidden when theme isn't `onyx-orange` or terminal width < `STATUS_PANE_MIN_WIDTH` (120 cols).
+- `src/components/StatusBar.tsx` — added upper-bound width gate: returns null when columns ≥ 120 so it steps aside for the pane. Bar + pane are now mutually exclusive based on terminal width.
+- `src/screens/REPL.tsx` — wraps the existing `<FullscreenLayout ... />` in `<Box flexDirection="row" flexGrow={1}>` with `<StatusPane>` as a sibling. No changes to FullscreenLayout itself.
+
+**Width behavior** (summarized):
+
+| Width    | Theme is `onyx-orange` | Other themes |
+| -------- | --------------------- | ------------ |
+| <60 cols  | Nothing               | Nothing      |
+| 60–119  | StatusBar (single line above prompt) | Nothing |
+| ≥120    | StatusPane (right column) | Nothing |
+
+**Known caveat — cosmetic only**:
+
+`FullscreenLayout` consults `useTerminalSize().columns` for its internal modal divider character (`"▔".repeat(columns)` at the top of slash-command dialogs). Because StatusPane allocates 22 columns via flex, the divider character now overshoots the chat area's actual width by ~22 columns when a modal opens with the pane visible. The line wraps or extends behind/under the pane region. Documented for follow-up; safe to fix by either passing an `availableColumns` prop to FullscreenLayout or by routing terminal-size queries through a context that reflects the flex-allocated width. Not blocking general use.
+
+**Verification**: `bun run build` clean, ThemePicker + TextInput tests 4 pass / 0 fail, type-check clean on changed files. No live-REPL smoke yet — needs running Council in a ≥120-col terminal to confirm the pane renders, the amber border shows, and the bar correctly steps aside.
+
+**Effort**: ~2h actual (within the 5–8h spec budget). Lower than expected because Path B is structurally lighter than Path A.
+
+**Phase 3 (a+b) total**: ~4h actual vs. 5–8h budgeted.
+
+## 14. Phase 3b reverted — the wrap bug was worse than predicted
+
+Smoke test on 2026-06-07 revealed that the cosmetic-only modal-divider caveat was actually a structural problem: **every chat message** with long content gets truncated at the pane border because `useTerminalSize().columns` is consulted not just for the modal divider but for word-wrap calculations across the entire chat render tree. Sample observed truncation:
+
+```
+  Given your current branch (feat/tui-status-pane) and uncommitted changes
+  to StatusBar.tsx, StatusPane.tsx, and REPL.tsx, I'm guessing you may want
+  input on the Phase 3b status pane wo
+```
+
+The trailing "rk" of "work" is hidden behind the pane region. The tool became unusable for normal chat.
+
+**Reverted in this commit**:
+- Row-wrap of FullscreenLayout in `src/screens/REPL.tsx` — undone, restores full-width chat
+- Upper-bound width check in `src/components/StatusBar.tsx` — undone, bar now shows on all widths ≥60 cols on the onyx-orange theme
+- StatusPane import in REPL — removed (component file kept in tree for future revival)
+
+**StatusPane.tsx kept in the tree**:
+- The file remains as dormant code with no callers
+- Can be revived once an `availableColumns` context-shim is in place across the chat render tree
+- See `COUNCIL_MODE_REDESIGN.md` for the alternative design direction that supersedes Phase 3b
+
+**Also in this commit — palette adjustment**:
+- Accent color swapped from amber `rgb(245,158,11)` to electric orange `rgb(255,106,0)` (Council's existing `fastMode` color, now unified as the theme accent). Pure orange rather than amber/yellow.
+- All amber references in `theme.ts`, `StatusBar.tsx`, `StatusPane.tsx`, and `TextInput.tsx` updated to the new value.
+
+**Phase 4/5 of the original spec (focus management, agent sidebar) are now obsolete** — the council-window redesign documented in `COUNCIL_MODE_REDESIGN.md` supersedes them. This document is now historical; refer to the new doc for active work.

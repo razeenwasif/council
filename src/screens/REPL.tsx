@@ -21,6 +21,7 @@ import { Box, Text, useStdin, useTheme, useTerminalFocus, useTerminalTitle, useT
 import type { TabStatusKind } from '../ink/hooks/use-tab-status.js';
 import { CostThresholdDialog } from '../components/CostThresholdDialog.js';
 import { IdleReturnDialog } from '../components/IdleReturnDialog.js';
+import { StatusBar } from '../components/StatusBar.js';
 import * as React from 'react';
 import { useEffect, useMemo, useRef, useState, useCallback, useDeferredValue, useLayoutEffect, type RefObject } from 'react';
 import { useNotifications } from '../context/notifications.js';
@@ -4686,6 +4687,7 @@ export function REPL({
       </>} bottom={<Box flexDirection={isBuddyEnabled() && companionNarrow ? 'column' : 'row'} width="100%" alignItems={isBuddyEnabled() && companionNarrow ? undefined : 'flex-end'}>
         {isBuddyEnabled() && companionNarrow && isFullscreenEnvEnabled() && companionVisible ? <CompanionSprite /> : null}
         <Box flexDirection="column" flexGrow={1}>
+          <StatusBar isLoading={isLoading} loadingStartMs={loadingStartTimeRef.current} pausedMs={totalPausedMsRef.current} pauseStartMs={pauseStartTimeRef.current} runningAgentCount={inProgressToolUseIDs.size} />
           {permissionStickyFooter}
           {/* Immediate local-jsx commands (/btw, /sandbox, /assistant,
                   /issue) render here, NOT inside scrollable. They stay mounted

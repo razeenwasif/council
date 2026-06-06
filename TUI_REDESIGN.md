@@ -248,16 +248,74 @@ Q1–Q5 resolved 2026-06-06. Recorded here so future-you doesn't re-litigate the
 
 ## 10. Phase 1 status — shipped
 
-Landed in this branch:
+Landed in commit `c9fb62f`:
 
-- `src/utils/theme.ts` — added `onyxOrangeTheme` constant (~70 tokens) + `'onyx-orange'` in `THEME_NAMES` + `getTheme()` dispatch
-- `src/components/ThemePicker.tsx` — new entry in the picker list
-
-Not done (deferred to Phase 2):
-
-- Cursor styling (see Q3 above)
-- `COUNCIL.md` documentation of the new theme — discoverable via the existing picker
+- `src/utils/theme.ts` — added `onyxOrangeTheme` constant (~70 tokens) + `'onyx-orange'` in `THEME_NAMES` + `getTheme()` dispatch. Promoted to default fallback.
+- `src/components/ThemePicker.tsx` — new entry in the picker list.
+- `~/.openclaude.json` — user-level theme set to `onyx-orange`.
 
 Verification: `bun run build` clean, ThemePicker test green, type-check clean on changed files.
 
 Switch with `/theme onyx-orange` or via the picker.
+
+## 11. Phase 2 status — shipped
+
+Border + spinner chrome standardization. Audit-driven scope:
+
+**Border audit finding**: zero structural changes needed.
+- 36 surfaces already use `borderStyle="round"` (Onyx `╭─╮│╰─╯`).
+- 5 use `borderStyle="single"` but only for single-edge dividers (`borderTop` only, etc.) — `round` doesn't apply to single-edge cases; the character set is the same.
+- 7 use `borderStyle="dashed"` for semantic "needs attention" surfaces (permission prompts, theme preview, plan approval) — preserved as the deliberate visual distinction.
+- 5 dynamic `borderStyle={...}` — already resolve to `'round'` or are layout-controlled (Logo, search box) and out of scope.
+
+**Spinner glyphs** changed: `src/components/Spinner/utils.ts` `getDefaultCharacters()` now returns braille frames `['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏']` — universal across terminals, matches Onyx's visual idiom, smoother visually than the previous asterisk/flower sequence. Dropped the macOS/Ghostty/Linux conditional branches since braille renders uniformly everywhere.
+
+**Cursor styling** (deferred from Phase 1): `src/components/TextInput.tsx` now uses an amber (`rgb(245,158,11)`) background with black foreground and SGR 5 (slow blink) when the active theme is `'onyx-orange'`. Other themes keep `chalk.inverse`. Blink degrades gracefully on terminals that ignore SGR 5 — the amber bg always shows. Voice-recording waveform mode and accessibility-mode no-cursor paths preserved untouched.
+
+Verification: `bun run build` clean, TextInput tests green (3 pass / 0 fail).
+
+Not done (genuinely Phase 3+):
+
+- Focus-aware borders (`theme.border` vs `theme.border_focus` on active pane) — depends on the focus-management primitive being built in Phase 5.
+- `COUNCIL.md` theme documentation — still discoverable via the picker; full docs deferred to wrap-up.
+
+Effort: ~3h actual (vs. 4–6h budgeted). Border audit being a no-op saved time.
+
+## 12. Phase 3 status — Phase 3a shipped, Phase 3b deferred
+
+Scope cut: the original Phase 3 plan was "full right-column status pane that collapses to a bottom bar at narrow widths." After auditing `src/screens/REPL.tsx` (the 5,101-line root render component using `FullscreenLayout` with `scrollable={...}` + `bottom={...}` props), shipping the full side pane requires modifying `FullscreenLayout` to accept a `rightPane` prop or wrapping the entire `mainReturn`. Both are structurally risky on the highest-trafficked file in the codebase. So Phase 3 was split:
+
+- **Phase 3a (shipped)** — collapsed bottom bar only. Single line above the prompt input area inside the existing `bottom={...}` flex row. No layout surgery. Theme-gated to `onyx-orange`.
+- **Phase 3b (deferred)** — full right-column side pane for wide terminals. Requires `FullscreenLayout` surgery. Will revisit after Phase 4/5 if the appetite remains.
+
+**Phase 3a landed**:
+
+- `src/components/StatusBar.tsx` (new, ~110 LOC) — single-line indicator rendering `▎ $0.18 · 7m 22s · 3 running` above the prompt input. Hidden when terminal width <60 cols. Uses an internal `useSecondTick` hook for the live elapsed timer; all hooks called unconditionally to satisfy React's rules-of-hooks (caught a bug during integration where the early-return-then-hook ordering would have thrown when the theme switched at runtime).
+- `src/screens/REPL.tsx` — 1 new import, 1 new render line passing through the existing `loadingStartTimeRef`, `totalPausedMsRef`, `pauseStartTimeRef`, `inProgressToolUseIDs` props.
+
+**Data sources hooked in** (no new state):
+
+| Field        | Source                            |
+| ------------ | --------------------------------- |
+| Cost         | `getTotalCost()` (cost-tracker)   |
+| Elapsed      | `loadingStartTimeRef` + paused refs (computed at render) |
+| Running      | `inProgressToolUseIDs.size`       |
+
+**Format and behavior**:
+
+- `▎ $0.18 · 7m 22s · 3 running` when actively loading with agents
+- `▎ $0.18` when idle (cost-only)
+- Elapsed timer hidden when not loading
+- Agent count hidden when zero
+- Bar hidden entirely when not on `onyx-orange` theme or terminal narrower than 60 cols
+- Other themes see no change in REPL layout
+
+**Verification**: `bun run build` clean, ThemePicker + TextInput tests green (4 pass / 0 fail), type-check clean on changed files. No live-REPL smoke test yet — needs a real session to confirm the elapsed timer ticks and the amber accent renders against the dark background.
+
+**Not done (deferred to Phase 3b or later)**:
+
+- Full right-column side pane with `tokens / cost / elapsed / model / agent breakdown` (expanded mode)
+- `totalAgentCount` field — currently undefined since the orchestrator's "spawn batch size" isn't exposed to REPL state. Would need a new piece of plumbing from `runCouncilFromToolContext` / `runDebateFromToolContext`. Defer with Phase 3b.
+- Width-based switch between bar and pane modes
+
+Effort: ~2h actual on Phase 3a (vs. 5–8h budgeted for the full Phase 3). Phase 3b will be its own pass when scheduled.

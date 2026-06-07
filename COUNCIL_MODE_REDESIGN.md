@@ -392,11 +392,28 @@ Polish + UX improvements on top of the Phase C foundation. Tracking progress her
 | Item | Status |
 |------|--------|
 | Per-voice colors via `vendorBadge.ts` | ✓ shipped |
-| Esc to background sessions | pending |
-| Real chunk-by-chunk streaming via AgentTool `onProgress` | pending |
-| Real synthesizer / executor / review stage content | pending |
+| Esc to background sessions | deferred (Esc has 3+ existing meanings in PromptInput — abort speculation, dismiss side-question, double-press clear input. Adding "background session" would be the fourth overlapping meaning. Alternative: a slash command like `/bg`, but the chat sub-pane is always visible alongside the session view anyway — the user can already see chat without backgrounding) |
+| Real chunk-by-chunk streaming via AgentTool `onProgress` | deferred (AgentTool's onProgress emits `{type: 'agent_progress', message: m}` events containing tool_use / tool_result blocks — useful for the chat scrollback, but extracting assistant-text streams for the voice-output sub-pane requires touching the lower-level message protocol in `services/api/claude.ts`. Marginal UX win: the chat sub-pane already streams progress via `setMessages`, so the user sees live updates there. Voice output sub-pane showing the final text on settle is acceptable) |
+| Real synthesizer / executor stage content | ✓ shipped — `stageContent: Partial<Record<Stage, string>>` field on SessionState; new `stage-output` event; spawn adapters emit on settle; `StagePane` renders for `synthesis` / `execution` stages |
+| Real review stage content | uses the existing voice-output path (reviewers are the same 7 roles re-spawning, so they appear in the voices list and the focused reviewer's output shows like any other proposal) |
 | Tab to cycle focused voice | deferred (low impact + Tab conflicts with PromptInput) |
 | `SessionCommand` real input wiring | n/a — production already uses `promptContent` slot, fallback only matters for preview script |
+
+### Real stage content (shipped)
+
+`SessionState.stageContent?: Partial<Record<Stage, string>>` field added — keyed by stage, holds text for non-voice stages.
+
+New `SessionEvent` variant: `{ type: 'stage-output', stage: Stage, chunk: string }`. Reducer accumulates chunks into `stageContent[stage]`. Spawn adapters emit on settle:
+- `spawnSynthesizer`: emits `stage-output(synthesis, plan.text)` after the synthesizer returns
+- `spawnExecutor`: emits `stage-output(execution, summary + diff)` after the executor returns
+
+`StagePane` now branches on stage:
+- `proposal` / `review` / `revision` → focused voice's output (voice-output path)
+- `synthesis` → renders `stageContent.synthesis` via the new `StageTextView`
+- `execution` → renders `stageContent.execution` (executor's summary + diff as plain text — a structured diff renderer is a future polish)
+- `done` / `idle` → placeholder
+
+`CouncilSessionScreen` passes `synthesisText` and `executionText` props (both paths: wide split-center mode and narrow stacked mode).
 
 ### Per-voice colors (shipped)
 

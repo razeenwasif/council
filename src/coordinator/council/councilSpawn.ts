@@ -323,7 +323,7 @@ export function buildCouncilAdapters(
         synthesisAnnounced = true
         emitSessionEvent({ type: 'stage-change', stage: 'synthesis' })
       }
-      return synthesizerFromAgentTool({
+      const plan = await synthesizerFromAgentTool({
         userPrompt,
         proposals,
         toolUseId,
@@ -332,6 +332,10 @@ export function buildCouncilAdapters(
         canUseTool: inputs.canUseTool,
         setMessages: inputs.setMessages,
       })
+      // Phase D: pipe the synthesizer's plan into the StagePane via
+      // stage-output. Center pane renders this when stage=synthesis.
+      emitSessionEvent({ type: 'stage-output', stage: 'synthesis', chunk: plan.text })
+      return plan
     },
 
     spawnExecutor: async ({ userPrompt, plan, revisionContext, toolUseId, signal }) => {
@@ -339,7 +343,7 @@ export function buildCouncilAdapters(
         executionAnnounced = true
         emitSessionEvent({ type: 'stage-change', stage: 'execution' })
       }
-      return executorFromAgentTool({
+      const result = await executorFromAgentTool({
         userPrompt,
         plan,
         revisionContext,
@@ -349,6 +353,15 @@ export function buildCouncilAdapters(
         canUseTool: inputs.canUseTool,
         setMessages: inputs.setMessages,
       })
+      // Phase D: executor result diff → stage-output. Currently rendered
+      // as plain text in StagePane; a structured diff renderer is a
+      // future polish (would parse the diff via diff-parser and route
+      // to StructuredDiff for syntax-aware rendering).
+      const executorChunk = result.summary
+        ? `${result.summary}\n\n${result.diff}`
+        : result.diff
+      emitSessionEvent({ type: 'stage-output', stage: 'execution', chunk: executorChunk })
+      return result
     },
 
     spawnReview: async ({ role, userPrompt, proposal, execution, toolUseId, signal }) => {

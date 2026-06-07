@@ -269,6 +269,8 @@ export function CouncilSessionScreen({
                   stage={stage}
                   focusedVoice={focusedVoice}
                   availableColumns={paneInner(voiceOutputOuter)}
+                  synthesisText={session?.stageContent?.synthesis}
+                  executionText={session?.stageContent?.execution}
                 />
               </Box>
             </Box>
@@ -329,6 +331,8 @@ export function CouncilSessionScreen({
               stage={stage}
               focusedVoice={focusedVoice}
               availableColumns={paneInner(interiorWidth)}
+              synthesisText={session?.stageContent?.synthesis}
+              executionText={session?.stageContent?.execution}
             />
           </Box>
           <Box

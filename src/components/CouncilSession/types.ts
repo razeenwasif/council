@@ -86,4 +86,9 @@ export interface SessionState {
   focusedVoiceIndex: number
   /** Live status snapshot for the right pane. */
   status: SessionStatus
+  /** Per-stage output text for stages that aren't bound to a single voice
+   *  (`synthesis` for the synthesizer, `execution` for the executor). The
+   *  proposal / review / revision stages use the focused voice's
+   *  `output` field instead. The StagePane reads this for non-voice stages. */
+  stageContent?: Partial<Record<Stage, string>>
 }

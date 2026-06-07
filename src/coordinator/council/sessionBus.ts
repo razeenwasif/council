@@ -38,6 +38,15 @@ export type SessionEvent =
     }
   | { type: 'voice-output'; role: string; chunk: string }
   | {
+      /** Text for a stage that isn't bound to a single voice (synthesizer
+       *  during synthesis, executor during execution). Reducer accumulates
+       *  chunks into SessionState.stageContent[stage]. The StagePane
+       *  renders this for non-voice stages. */
+      type: 'stage-output'
+      stage: Stage
+      chunk: string
+    }
+  | {
       type: 'session-end'
       /** Optional final brief (discover) or diff (council) for the REPL transition. */
       result?: { brief?: string; diff?: string }

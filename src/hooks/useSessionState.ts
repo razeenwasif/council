@@ -87,6 +87,14 @@ function reduce(state: SessionState | null, event: SessionEvent): SessionState |
       )
       return { ...state, voices }
     }
+    case 'stage-output': {
+      if (!state) return state
+      const prev = state.stageContent?.[event.stage] ?? ''
+      return {
+        ...state,
+        stageContent: { ...(state.stageContent ?? {}), [event.stage]: prev + event.chunk },
+      }
+    }
     case 'session-end':
       return null
   }

@@ -68,6 +68,7 @@ Authoritative references for different needs:
 | Session view components | `src/components/CouncilSession/`, `scripts/preview-council-mode.tsx` |
 | Session bus + state hook | `src/coordinator/council/sessionBus.ts`, `src/hooks/useSessionState.ts` |
 | Effective terminal-size shim (Phase C primitive) | `src/hooks/useEffectiveTerminalSize.ts` |
+| Chat sub-pane (wraps slot in EffectiveTerminalSizeProvider) | `src/components/CouncilSession/ChatPane.tsx` |
 | Self-improving council telemetry plan | `TELEMETRY_PLAN.md` |
 
 ---

@@ -48,6 +48,39 @@ const session =
       ? MOCK_DISCOVER_SESSION
       : MOCK_COUNCIL_SESSION
 
+/** Placeholder chat content for the preview script — fakes a multi-turn
+ *  conversation so the chat sub-pane has something to show alongside
+ *  the voice output pane in active-session mode. The real REPL injects
+ *  its `Messages` + spinner + tool JSX tree here in C.3. */
+function MockChat(): React.ReactNode {
+  return (
+    <Box flexDirection="column" paddingX={1}>
+      <Box marginBottom={1}>
+        <Text dimColor>user</Text>
+      </Box>
+      <Box marginBottom={1}>
+        <Text>rename the foo helper to bar across the codebase</Text>
+      </Box>
+      <Box marginBottom={1}>
+        <Text dimColor>assistant</Text>
+      </Box>
+      <Box marginBottom={1}>
+        <Text>
+          I'll convene the council to deliberate on the rename approach. Watch
+          the voices light up in the panel to your left as each member produces
+          their proposal in parallel.
+        </Text>
+      </Box>
+      <Box marginBottom={1}>
+        <Text dimColor>user</Text>
+      </Box>
+      <Box>
+        <Text>perfect, watching now</Text>
+      </Box>
+    </Box>
+  )
+}
+
 function App(): React.ReactNode {
   const [cols, setCols] = React.useState(process.stdout.columns ?? 120)
   const [input, setInput] = React.useState('')
@@ -87,6 +120,7 @@ function App(): React.ReactNode {
         session={session}
         terminalColumns={cols}
         commandValue={input}
+        chatContent={<MockChat />}
       />
     </Box>
   )

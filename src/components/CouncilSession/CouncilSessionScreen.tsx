@@ -1,5 +1,6 @@
 import React from 'react'
 import { Box, Text } from '../../ink.js'
+import { ChatPane } from './ChatPane.js'
 import { SessionCommand } from './SessionCommand.js'
 import { SessionStatus } from './SessionStatus.js'
 import { StagePane } from './StagePane.js'
@@ -44,8 +45,18 @@ export type CouncilSessionScreenProps = {
   session: SessionState | null
   /** Total terminal width. We compute pane widths from this. */
   terminalColumns: number
-  /** Current command buffer (used by SessionCommand). C.2a default: ''. */
+  /** Current command buffer (used by SessionCommand when no `promptContent`
+   *  slot is provided — the preview-only path). */
   commandValue?: string
+  /** Chat content slot — typically the REPL's `Messages` + spinner +
+   *  tool JSX. When provided, renders inside the chat sub-pane wrapped
+   *  with `EffectiveTerminalSizeProvider`. When absent, the chat pane
+   *  shows a placeholder. */
+  chatContent?: React.ReactNode
+  /** Prompt content slot — typically the REPL's `PromptInput`. When
+   *  provided, renders inside the command pane in place of the static
+   *  `SessionCommand` stub. */
+  promptContent?: React.ReactNode
 }
 
 /** Build an idle Voice array for a given mode — all roles in pending status. */
@@ -89,6 +100,8 @@ export function CouncilSessionScreen({
   session,
   terminalColumns,
   commandValue = '',
+  chatContent,
+  promptContent,
 }: CouncilSessionScreenProps): React.ReactNode {
   if (terminalColumns < NARROW_THRESHOLD) return null
 
@@ -120,9 +133,16 @@ export function CouncilSessionScreen({
   const runningVoices = session
     ? session.voices.filter(v => v.status === 'running').map(v => v.role)
     : []
-  const centerTitle = focusedVoice
+  // Phase C.2b: center is split into chat + voice-output sub-panes when
+  // a session is active. At idle, chat takes the full center width.
+  const isSessionActive = session !== null
+  const voiceOutputTitle = focusedVoice
     ? `current — ${focusedVoice.role} (${focusedVoice.model})`
-    : 'chat'
+    : 'current'
+  // Split math: outer widths of the two sub-panes (each includes its own
+  // round border). chat gets floor; voice-output gets the remainder.
+  const chatOuterActive = Math.floor(centerOuter / 2)
+  const voiceOutputOuter = centerOuter - chatOuterActive
 
   // Idle: no elapsed timer + cumulative cost (handled by SessionStatus
   // when status.startMs === 0). At idle we synthesize a status block.
@@ -188,20 +208,56 @@ export function CouncilSessionScreen({
               />
             </Box>
           </Box>
-          <Box
-            flexGrow={1}
-            borderStyle="round"
-            borderColor={ACCENT}
-            backgroundColor={BG}
-            flexDirection="column"
-            borderText={paneTitle(centerTitle)}
-          >
-            <StagePane
-              stage={stage}
-              focusedVoice={focusedVoice}
-              availableColumns={paneInner(centerOuter)}
-            />
-          </Box>
+          {/* Center: split into chat sub-pane + voice-output sub-pane
+              when a session is active; single chat pane spanning the
+              full center at idle. Chat sub-pane wraps its content with
+              EffectiveTerminalSizeProvider so word-wrap respects the
+              allocated columns. */}
+          {isSessionActive ? (
+            <Box flexDirection="row" flexGrow={1}>
+              <Box
+                width={chatOuterActive}
+                borderStyle="round"
+                borderColor={ACCENT}
+                backgroundColor={BG}
+                flexDirection="column"
+                borderText={paneTitle('chat')}
+              >
+                <ChatPane
+                  availableColumns={chatOuterActive}
+                  chatContent={chatContent}
+                />
+              </Box>
+              <Box
+                width={voiceOutputOuter}
+                borderStyle="round"
+                borderColor={ACCENT}
+                backgroundColor={BG}
+                flexDirection="column"
+                borderText={paneTitle(voiceOutputTitle)}
+              >
+                <StagePane
+                  stage={stage}
+                  focusedVoice={focusedVoice}
+                  availableColumns={paneInner(voiceOutputOuter)}
+                />
+              </Box>
+            </Box>
+          ) : (
+            <Box
+              flexGrow={1}
+              borderStyle="round"
+              borderColor={ACCENT}
+              backgroundColor={BG}
+              flexDirection="column"
+              borderText={paneTitle('chat')}
+            >
+              <ChatPane
+                availableColumns={centerOuter}
+                chatContent={chatContent}
+              />
+            </Box>
+          )}
           <Box
             width={STATUS_WIDTH}
             borderStyle="round"
@@ -268,7 +324,16 @@ export function CouncilSessionScreen({
         flexDirection="column"
         borderText={paneTitle('command')}
       >
-        <SessionCommand value={commandValue} availableColumns={paneInner(interiorWidth)} />
+        {promptContent ? (
+          // REPL slot — its PromptInput already manages its own input.
+          // No EffectiveTerminalSizeProvider here because the prompt is
+          // a single line; horizontal width matters for input wrap but
+          // PromptInput uses its own column-aware logic that respects
+          // the flex-allocated width.
+          promptContent
+        ) : (
+          <SessionCommand value={commandValue} availableColumns={paneInner(interiorWidth)} />
+        )}
       </Box>
       <HelpBar availableColumns={interiorWidth} />
     </Box>

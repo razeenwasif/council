@@ -331,4 +331,31 @@ Stacked-left voice panes (council + discover always visible) with idle pending r
 
 **Effort**: ~75 min actual (budget 2–3h).
 
-**Next**: C.2b — split center pane into chat + voice-output sub-panes, add slot props, wrap chatContent with `EffectiveTerminalSizeProvider`.
+## 16. C.2b status — shipped
+
+Split center pane (chat + voice-output sub-panes during active session, single chat pane at idle) plus the slot props for REPL integration.
+
+**Files created**:
+- `src/components/CouncilSession/ChatPane.tsx` — wraps user-supplied `chatContent` inside an `EffectiveTerminalSizeProvider` so descendants that opt into `useEffectiveTerminalSize` wrap to the pane's allocated columns. Placeholder when `chatContent` is null/undefined (preview-only path).
+
+**Files modified**:
+- `src/components/CouncilSession/CouncilSessionScreen.tsx`:
+  - Added `chatContent?: ReactNode` and `promptContent?: ReactNode` slot props.
+  - Wide-mode center pane now branches: active session renders chat + voice-output sub-panes side-by-side (each ~half the centerOuter width); idle renders a single chat sub-pane spanning the full center width.
+  - Command pane renders `promptContent` slot when provided, falling back to the static `SessionCommand` for the preview-only path.
+- `src/components/CouncilSession/index.ts` — re-exports `ChatPane` + `ChatPaneProps` + the canonical role lists.
+- `scripts/preview-council-mode.tsx` — passes a `MockChat` component as the chat slot so the layout demonstrates the slot wiring. Visible in all three modes (council / discover / idle).
+
+**Width split math** (≥120 cols, active session):
+- `centerOuter = terminalCols − VOICE_LIST_WIDTH(18) − STATUS_WIDTH(24) − OUTER_CHROME(4)`
+- `chatOuter = floor(centerOuter / 2)`, `voiceOutputOuter = centerOuter − chatOuter`
+- At terminalCols=120: centerOuter=74, chat=37, voiceOutput=37
+- At terminalCols=200: centerOuter=154, chat=77, voiceOutput=77
+
+**Verification**: `bun run build` clean. useEffectiveTerminalSize tests 4/4. Live preview at idle / council / discover renders chat slot + voice output split (active modes) and single chat pane (idle).
+
+**What this enables for C.3**: REPL.tsx can now pass its existing `Messages + spinner + tool JSX` tree as `chatContent` and its existing `PromptInput` as `promptContent`. The session view becomes the outermost layout and the chat tree lives inside the chat sub-pane.
+
+**Effort**: ~50 min actual (budget 3–4h). Below estimate because the ChatPane primitive is thin and the conditional split was a single JSX edit.
+
+**Next**: C.3 — REPL.tsx integration. Replace the conditional early-return with always-render CouncilSessionScreen; route existing scrollable content into chatContent slot; PromptInput into promptContent slot.

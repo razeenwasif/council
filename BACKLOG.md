@@ -120,11 +120,75 @@ Five MCPs were evaluated against this project's needs. The two tiers below were 
 - *Risks*: state divergence between MCP and in-process state; vendor lock-in; data model coupling.
 - *Estimate*: not yet — sequence after `CO-SCIENTIST.md` step 5 (Evolution agent) at the earliest.
 
+### Council prompts ↔ local-Gemma adherence
+
+**Symptom**: when council/discover voices are routed to local Gemma 4 models (e4b, 12b) via Ollama's OpenAI-compatible endpoint, two failure modes appear consistently:
+
+1. **Gemma 12b on the `performance` role (and likely `architect`, `security`) loops on tool calls.** The role definitions allow Read/Grep/Glob; Gemma 12b attempts to invoke them, the Ollama OpenAI shim's tool-call format isn't a clean match for what Gemma produces, the model retries → output blows past `CLAUDE_CODE_MAX_OUTPUT_TOKENS` (seen at 32K and 64K caps, both hit).
+2. **Gemma e4b on the `executor` role narrates instead of producing a diff.** Returns natural-language explanations of what it plans to do ("Let me begin the refactoring process by executing Phase 1: Context Acquisition...") rather than the unified diff the executor prompt asks for.
+
+Together: Council can dispatch local voices, get proposals, synthesize, but the executor produces unusable output and 12b voices occasionally hang.
+
+**Root cause**: the system prompts in `src/tools/AgentTool/built-in/council/prompts.ts` and `src/tools/AgentTool/built-in/council/<role>Agent.ts` were tuned against Claude / GPT / DeepSeek — models with strong instruction-following on hard format constraints + structured tool-call output. Gemma family models are weaker on both axes:
+- Their OpenAI-compat tool-call format through Ollama is sometimes malformed (the shim can't parse it), leading to retry loops.
+- They have a strong bias toward narrating reasoning even when told not to.
+
+The repo's coordinator architecture already assumes per-voice tools — there's no built-in way to say "this voice has no tools when running on this provider."
+
+**Fix** (in increasing order of work):
+
+1. **Tighten the executor prompt with explicit Gemma-friendly examples** (~1-2h). In `src/tools/AgentTool/built-in/council/prompts.ts`, the `EXECUTOR_PROMPT` already says "produce a diff" — add a worked example showing exact unified-diff format, prefixed by "DO NOT narrate. DO NOT explain. Output ONLY the diff starting with `--- a/`...". May still fail under Gemma — but easy to ship and may help.
+2. **Empty `allowedTools` per voice when routed to local model** (~3-4h). Voices that don't need to write (skeptic, critic, tester, security, performance, architect proposal-stage) can run with zero tools and just produce structured analysis. Requires plumbing the routed model name back into the agent definition before dispatch, OR adding a `localModelToolPolicy` field per agent. Killing tool access kills the tool-call retry loop entirely.
+3. **Pre-process Gemma tool-call output to normalize the format** (~6-8h). Detect Gemma's actual format quirks, rewrite into the OpenAI tool-call spec before the shim consumes it. Brittle long-term — better to wait for Ollama / vLLM upstream fixes.
+4. **Switch local-routed roles to a model family with better instruction-following** (~variable). Qwen 3, DeepSeek-V3-Lite, Llama 4 Scout — all reportedly stronger than Gemma 4 on instruction adherence + tool-call format. Cost: re-pull, re-tune Modelfile, re-route. Worth benchmarking but bigger surface area.
+
+**Estimate**: fix #1 is the quickest meaningful win (1-2h). #2 is the structurally-correct fix (3-4h) and the one to land before doing serious local-multi-agent research.
+
+**Why P2**: every push toward "Council runs entirely on local hardware" is blocked by this. The user's research thesis ("Information-Preserving Quantization of Domain-Specialist Fine-Tunes for Verification in Multi-Agent Scientific Reasoning Systems") explicitly relies on local quantized models being usable as council voices — at minimum as verifiers. Today they're not, because their output is either an infinite tool-call loop or a polite narrative. Fix #1 + #2 unblock the verification-layer experiments planned in `ROADMAP.md`.
+
+**Context** (from the 2026-06-07 setup session): all-Gemma routing works end-to-end at the dispatch level (verified after fixing the `~/.openclaude/` vs `~/.claude/` config-home trap — see hard rule #15). The remaining failures are downstream of dispatch. Working config snapshot:
+- `model`: `gemma4:e4b-council`
+- All 14 council/discover roles routed to `gemma4:e4b-council` (12b kept blowing past max_tokens on `performance`)
+- Modelfile params: `num_ctx 16384`, `num_predict 4096`, `temperature 0.1`, `top_k 64`, `repeat_penalty 1.2`
+- `env.CLAUDE_CODE_MAX_OUTPUT_TOKENS=65536` (raised twice from 32K → 64K → 65K trying to outrun the loop; once tool-call loops are killed, can drop back to default)
+
+### TUI render-perf — measurement-gated optimizations
+
+A list of TUI/render perf improvements surfaced in a 2026-06-07 review. Documented here so we don't lose them; **do NOT speculatively ship these** — the rule is measure first, then pick the one(s) the data justifies. Listed in execution order, with each later item gated on the previous.
+
+**Phase 1 — instrumentation (do first, regardless)** *(~3-4 h)*
+- *What*: expose Ink's existing frame-phase metrics (`renderer`, `diff`, `optimize`, `write`, `yoga`, `commit`, `patches`, `yogaLive`) behind a debug flag. `FpsTracker` + the phase counters are already in `src/ink/ink.tsx` — just need a `/perf` slash command or `COUNCIL_PERF=1` env that prints a ring-buffer summary every N seconds.
+- *Why*: every other item on this list is a guess without it. The hot path could be Yoga commit, ANSI diffing, terminal write, React fiber commits, or upstream cache eviction — they look identical in subjective "feels slow."
+- *Output*: a per-second log showing the breakdown so a session profile can answer "what's actually expensive?"
+
+**Phase 2 — risk-free fix (ship even without data)** *(~1 h)*
+- *What*: pause spinners, shimmers, and elapsed-time tickers when their owning pane is unfocused or their associated tool is inactive. `SessionStatus.tsx` and `StatusPane.tsx` have 1-second timers that should only tick when the pane is the focused one (post-Phase-2-dual-pane, that means only one of the two workspace panes ticks).
+- *Why*: established pattern in the repo (existing comments around it); no risk; concrete waste eliminated.
+
+**Phase 3 — measurement-gated picks** *(do at most one or two of these per cycle, ordered by expected ROI from the Phase 1 profile)*
+- **LRU cache for `HighlightedCode`** *(~2 h, ship IF profile shows syntax highlighting dominates the diff/optimize phase)*: key by `filePath + codeHash + width + theme + dim`. Bounded size (50-100 entries). Especially impactful for tool outputs / diffs that get remounted while scrolling.
+- **Memoize derived arrays in Council views** *(~1-2 h surgical, ship IF profile shows commit/yoga spikes from re-renders of unstable parent props)*: `runningVoices`, pane title objects, repeated border/title config. ONLY the specific arrays that profiling fingers — do not blanket-apply `useMemo`.
+- **Bound retained caches** *(~2-4 h, ship IF profile shows memory growth from a specific cache without TTL)*: this is conditional on identifying the leak point — message-history caches, syntax-highlight outputs, search indices. Bound the offending one specifically.
+
+**Phase 4 — defer indefinitely unless data forces them**
+- *Incremental message store in `Messages.tsx`*: existing O(n) rebuild is bounded (n=200 worst-case non-virtual; viewport-only in virtual mode). Replacing it with a derived-state store is a real refactor with regression risk. Don't touch unless profiling shows it's the dominant cost AND sessions regularly exceed n=200 messages.
+- *Worker-thread offload for Markdown / syntax highlighting*: worker IPC overhead (serialize → postMessage → deserialize → postMessage back) is its own ~5-15ms tax per round-trip. Net loss unless the UI thread is genuinely blocked for >50ms sustained AND the Phase 3 LRU cache hasn't already solved it.
+
+**Why P2**: every dual-pane + Council UX iteration gets more sensitive to render lag — multi-agent dispatches already serialize 14 voice spawns, so any UI-thread cost compounds. But this is also exactly the territory where speculative refactors waste days. The phasing here is the actual guardrail.
+
 ---
 
 ## P3 — cleanup carryover from pre-v1
 
 None of these block anything; they're hygiene as opportunities arise.
+
+### Session-only file list in the `git` side pane
+
+**Symptom**: the `git` pane's file list is sourced from `git status --porcelain`, so it shows any file that was already dirty before the session started — not just files touched by tools in the current session. Honest as "what would I commit right now," but slightly off as "what did the agent change this turn." The wider integration (file-list lives in the same pane as the count summary) shipped 2026-06-08 after the original right-column `files` widget was consolidated into the left `git` pane.
+
+**Work** (~3-4 h): instrument the Edit / Write / MultiEdit / Bash tool dispatch sites to record file mutations into a session-scoped `Set<string>` (mirroring the `chatHistorySource` singleton pattern). Pass that into `GitStatusPane` and intersect with `status.files` so only session-touched files render as the primary list; pre-existing dirties either move into a small `+N stale` footer or get tinted dim. Skip when Bash writes are too noisy to identify (heuristic: only count paths that match the workdir prefix).
+
+**Why P3**: the current widget isn't *wrong* — status flags and paths are accurate — it's just slightly misaligned with how the user mentally framed it. Pure quality-of-life.
 
 ### Remove vim mode
 **Coupling**: `VimTextInput.tsx` is referenced by `PromptInput.tsx`, `textInputTypes.ts`, and the input test suite.

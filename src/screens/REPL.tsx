@@ -886,6 +886,10 @@ export function REPL({
   // Ref to the fullscreen layout's scroll box for keyboard scrolling.
   // Null when fullscreen mode is disabled (ref never attached).
   const scrollRef = useRef<ScrollBoxHandle>(null);
+  // Dedicated scroll handle for the dual-pane "agent thoughts" pane
+  // (below the workspace row). Auto-follows latest voice output via
+  // stickyScroll; Shift+↑/↓ + Shift+PageUp/PageDown scroll manually.
+  const agentScrollRef = useRef<ScrollBoxHandle>(null);
   // Separate ref for the modal slot's inner ScrollBox — passed through
   // FullscreenLayout → ModalContext so Tabs can attach it to its own
   // ScrollBox for tall content (e.g. /status's MCP-server list). NOT
@@ -1210,25 +1214,6 @@ export function REPL({
     const prev = messagesRef.current;
     const next = typeof action === 'function' ? action(messagesRef.current) : action;
     messagesRef.current = next;
-    // Phase 3c: tag any newly-appended messages with the pane that owns
-    // them. lastSubmittedPaneRef is set by onSubmit at routing time;
-    // subsequent assistant / tool / system messages in the same exchange
-    // inherit that pane. Untagged historic messages default to council
-    // (matches pre-Phase-3c behavior). WeakMap keyed on the message
-    // object itself so types without a uuid (system / progress / hook
-    // result / etc.) still get tagged.
-    if (next.length > prev.length) {
-      const delta = next.length - prev.length;
-      const added =
-        prev.length === 0 || next[0] === prev[0]
-          ? next.slice(-delta)
-          : next.slice(0, delta);
-      for (const m of added) {
-        if (m && typeof m === 'object' && !messagePaneRef.current.has(m)) {
-          messagePaneRef.current.set(m, lastSubmittedPaneRef.current);
-        }
-      }
-    }
     if (next.length < userInputBaselineRef.current) {
       // Shrank (compact/rewind/clear) — clamp so placeholderText's length
       // check can't go stale.
@@ -1404,32 +1389,12 @@ export function REPL({
     const timer = setTimeout(setIsPromptInputActive, PROMPT_SUPPRESSION_MS, false);
     return () => clearTimeout(timer);
   }, [inputValue]);
-  // Dual-pane center (Phase 2 of dual-pane work, 2026-06-07): the
-  // session view's center splits into two workspace panes — council
-  // (council orchestrator) and research (discover orchestrator). The
-  // single PromptInput is mounted in whichever pane has focus;
-  // `unfocusedDraft` is the preserved draft of the other pane. Alt+1
-  // focuses council; Alt+2 focuses research. Swap saves inputValue into
-  // unfocusedDraft and loads the previous unfocusedDraft into inputValue
-  // — drafts persist per pane across focus switches. Phase 3 will route
-  // per-pane submissions to the right orchestrator.
-  const [focusedPane, setFocusedPane] = useState<'council' | 'research'>('council');
-  const [unfocusedDraft, setUnfocusedDraft] = useState<string>('');
-  // Phase 3c (2026-06-07): per-pane scrollback. messagePaneRef tags
-  // each message with the pane that owns it; lastSubmittedPaneRef
-  // tracks which pane the most recent submission belonged to. New
-  // messages without an explicit tag inherit lastSubmittedPaneRef.
-  // Filter at render: displayedMessages is then narrowed to the focused
-  // pane (with untagged messages defaulting to council — the original
-  // single-pane behavior).
-  //
-  // Implementation note (2026-06-07 fix): switched from
-  // `Map<uuid, pane>` to `WeakMap<messageObject, pane>` so message types
-  // that don't carry a uuid (system, progress, hook result, etc.) still
-  // get tagged. The UUID-keyed Map silently passed those through the
-  // filter, leaving them visible in every pane.
-  const messagePaneRef = useRef<WeakMap<object, 'council' | 'research'>>(new WeakMap());
-  const lastSubmittedPaneRef = useRef<'council' | 'research'>('council');
+  // Dual-pane center was reverted 2026-06-08 — pane overlap bugs leaked
+  // messages between panes and the routing was ambiguous. The session
+  // view's center is now a single workspace pane; users invoke
+  // `/council …` or `/discover …` explicitly to route to a specific
+  // orchestrator. WeakMap-based per-pane tagging, the unfocused-draft
+  // state, and the Alt+1/Alt+2 swap handler are all gone.
   const [inputMode, setInputMode] = useState<PromptInputMode>('prompt');
   const [stashedPrompt, setStashedPrompt] = useState<{
     text: string;
@@ -3274,34 +3239,6 @@ export function REPL({
   }, options?: {
     fromKeybinding?: boolean;
   }) => {
-    // Phase 3c: record which pane this submission belongs to so
-    // subsequently-appended messages get tagged in setMessages. Tag is
-    // derived from the ORCHESTRATOR that runs, not the focused pane at
-    // submit time, so an explicit `/council run X` typed while focused
-    // on research still lands in the council pane.
-    // - `/council ...` → 'council' (council orchestrator owns the
-    //   exchange, regardless of where it was launched from)
-    // - `/discover ...` → 'research' (discover/debate orchestrator)
-    // - plain text or other slash commands → focusedPane (these are
-    //   regular chats / UI commands belonging to whatever workspace
-    //   the user was in)
-    //
-    // Phase 3a auto-routing (plain text → `/council run X` /
-    // `/discover X`) was REVERTED 2026-06-07 — invoking the full
-    // 7-agent council orchestrator for trivial inputs like "hi" was
-    // wasting minutes of dispatch time. Plain text now stays plain
-    // text → normal Claude chat. Council / discover are invoked
-    // deliberately via slash command.
-    if (isFullscreenEnvEnabled() && !speculationAccept) {
-      const trimmed = input.trim();
-      const submissionPane: 'council' | 'research' = trimmed.startsWith('/council')
-        ? 'council'
-        : trimmed.startsWith('/discover')
-          ? 'research'
-          : focusedPane;
-      lastSubmittedPaneRef.current = submissionPane;
-    }
-
     // Re-pin scroll to bottom on submit so the user always sees the new
     // exchange (matches OpenCode's auto-scroll behavior).
     repinScroll();
@@ -3733,7 +3670,7 @@ export function REPL({
     // messages array in downstream closures (PromptInput, handleAutoRunIssue).
     // Heap analysis showed ~9 REPL scopes and ~15 messages array versions
     // accumulating after #20174/#20175, all traced to this dep.
-    mainLoopModel, pastedContents, ideSelection, setUserInputOnProcessing, setAbortController, addNotification, onQuery, stashedPrompt, setStashedPrompt, setAppState, onBeforeQuery, canUseTool, remoteSession, setMessages, awaitPendingHooks, repinScroll, focusedPane]);
+    mainLoopModel, pastedContents, ideSelection, setUserInputOnProcessing, setAbortController, addNotification, onQuery, stashedPrompt, setStashedPrompt, setAppState, onBeforeQuery, canUseTool, remoteSession, setMessages, awaitPendingHooks, repinScroll]);
 
   // Callback for when user submits input while viewing a teammate's transcript
   const onAgentSubmit = useCallback(async (input: string, task: InProcessTeammateTaskState | LocalAgentTaskState, helpers: PromptInputHelpers) => {
@@ -4367,28 +4304,82 @@ export function REPL({
   // Props for GlobalKeybindingHandlers component (rendered inside KeybindingSetup)
   const virtualScrollActive = isFullscreenEnvEnabled() && !disableVirtualScroll;
 
-  // Dual-pane center: Alt+1 focuses council pane; Alt+2 focuses research
-  // pane. Swap saves the current inputValue into unfocusedDraft and
-  // loads the previous unfocusedDraft into inputValue — drafts persist
-  // per pane. Only fires when fullscreen is enabled (the only place the
-  // dual-pane layout renders).
-  const switchPane = useCallback((target: 'council' | 'research') => {
-    if (target === focusedPane) return;
-    const currentInput = inputValueRef.current;
-    const previousOtherDraft = unfocusedDraft;
-    setUnfocusedDraft(currentInput);
-    setInputValue(previousOtherDraft);
-    setFocusedPane(target);
-  }, [focusedPane, unfocusedDraft, setInputValue]);
+  // Scroll-focus toggle: Alt+1 selects the chat pane, Alt+2 selects the
+  // agent thoughts pane. Selected pane gets the orange accent border
+  // (visual cue) AND receives bare PgUp/PgDn + Alt+↑/↓ scroll input.
+  // Defaults to chat so existing muscle memory keeps working.
+  const [scrollFocus, setScrollFocus] = useState<'chat' | 'agent'>('chat');
   useInput((input, key, event) => {
     if (!isFullscreenEnvEnabled()) return;
     if (!key.meta) return;
     if (input === '1') {
-      switchPane('council');
+      setScrollFocus('chat');
       event.stopImmediatePropagation();
     } else if (input === '2') {
-      switchPane('research');
+      setScrollFocus('agent');
       event.stopImmediatePropagation();
+    }
+  });
+
+  // Unified scroll handler — routes PageUp/PageDown + arrow scrolls to
+  // whichever pane scrollFocus selects. Raw useInput at REPL level,
+  // fires BEFORE the useKeybindings-based ScrollKeybindingHandler so it
+  // bypasses that handler's `isActive` gating.
+  // - bare PageUp/PageDown: scroll a viewport at a time
+  // - Alt+↑/↓: scroll a line at a time
+  // Shift+PgUp/PgDn / Shift+↑/↓ stays as a force-agent fallback for
+  // muscle memory regardless of scrollFocus.
+  useInput((input, key, event) => {
+    if (!isFullscreenEnvEnabled()) return;
+
+    // Shift forces agent regardless of focus (legacy keybind kept alive).
+    if (key.shift) {
+      const handle = agentScrollRef.current;
+      if (!handle) return;
+      if (key.pageUp) {
+        handle.scrollBy(-Math.max(1, transcriptRows - 4));
+        event.stopImmediatePropagation();
+        return;
+      }
+      if (key.pageDown) {
+        handle.scrollBy(Math.max(1, transcriptRows - 4));
+        event.stopImmediatePropagation();
+        return;
+      }
+      if (key.upArrow) {
+        handle.scrollBy(-1);
+        event.stopImmediatePropagation();
+        return;
+      }
+      if (key.downArrow) {
+        handle.scrollBy(1);
+        event.stopImmediatePropagation();
+        return;
+      }
+      return;
+    }
+
+    const handle = scrollFocus === 'agent' ? agentScrollRef.current : scrollRef.current;
+    if (!handle) return;
+    if (key.pageUp) {
+      handle.scrollBy(-Math.max(1, transcriptRows - 2));
+      event.stopImmediatePropagation();
+      return;
+    }
+    if (key.pageDown) {
+      handle.scrollBy(Math.max(1, transcriptRows - 2));
+      event.stopImmediatePropagation();
+      return;
+    }
+    if (key.meta && key.upArrow) {
+      handle.scrollBy(-1);
+      event.stopImmediatePropagation();
+      return;
+    }
+    if (key.meta && key.downArrow) {
+      handle.scrollBy(1);
+      event.stopImmediatePropagation();
+      return;
     }
   });
 
@@ -4710,25 +4701,9 @@ export function REPL({
   // When viewing an agent, never fall through to leader — empty until
   // bootstrap/stream fills. Closes the see-leader-type-agent footgun.
   const allDisplayedMessages = viewedAgentTask ? viewedAgentTask.messages ?? [] : usesSyncMessages ? messages : deferredMessages;
-  // Phase 3c: when the dual-pane session view is active, filter the
-  // rendered messages by the focused pane. Each message UUID is tagged
-  // in messagePaneRef when it's appended (via setMessages). Untagged
-  // messages default to council so historic conversations remain
-  // visible in the council pane (preserves pre-Phase-3c behavior).
-  // viewedAgentTask path skips the filter — agent transcripts are
-  // their own thing, not pane-scoped.
-  const displayedMessages = (() => {
-    if (viewedAgentTask) return allDisplayedMessages;
-    if (!isFullscreenEnvEnabled()) return allDisplayedMessages;
-    return allDisplayedMessages.filter((m: MessageType) => {
-      if (!m || typeof m !== 'object') return true;
-      // Object-identity lookup via WeakMap so messages without a uuid
-      // still resolve to their tag. Untagged historic messages default
-      // to 'council' (matches pre-Phase-3c single-pane behavior).
-      const tag = messagePaneRef.current.get(m) ?? 'council';
-      return tag === focusedPane;
-    });
-  })();
+  // Single-pane center (2026-06-08): all messages render in the one
+  // workspace pane. No per-pane filtering, no opposite-pane preview.
+  const displayedMessages = allDisplayedMessages;
   // Show the placeholder until the real user message appears in
   // displayedMessages. userInputOnProcessing stays set for the whole turn
   // (cleared in resetLoadingState); this length check hides it once
@@ -4784,7 +4759,7 @@ export function REPL({
     {feature('MESSAGE_ACTIONS') && isFullscreenEnvEnabled() && !disableMessageActions ? <MessageActionsKeybindings handlers={messageActionHandlers} isActive={cursor !== null} /> : null}
     <CancelRequestHandler {...cancelRequestProps} />
     <MCPConnectionManager key={remountKey} dynamicMcpConfig={dynamicMcpConfig} isStrictMcpConfig={strictMcpConfig}>
-      <CouncilSessionScreen session={sessionState} terminalColumns={transcriptCols} terminalRows={transcriptRows} overlayContent={centeredModal} modalScrollRef={modalScrollRef} focusedPane={focusedPane} unfocusedDraft={unfocusedDraft} chatContent={
+      <CouncilSessionScreen session={sessionState} terminalColumns={transcriptCols} terminalRows={transcriptRows} overlayContent={centeredModal} modalScrollRef={modalScrollRef} agentScrollRef={agentScrollRef} scrollFocus={scrollFocus} chatContent={
       <FullscreenLayout scrollRef={scrollRef} overlay={toolPermissionOverlay} bottomFloat={isBuddyEnabled() && companionVisible && !companionNarrow ? <CompanionFloatingBubble /> : undefined} modal={null} modalScrollRef={modalScrollRef} dividerYRef={dividerYRef} hidePill={!!viewedAgentTask} hideSticky={!!viewedTeammateTask} newMessageCount={unseenDivider?.count ?? 0} onPillClick={() => {
         setCursor(null);
         jumpToNew(scrollRef.current);

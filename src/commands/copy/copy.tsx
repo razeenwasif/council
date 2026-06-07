@@ -332,6 +332,35 @@ function _temp(block, index) {
   };
 }
 export const call: LocalJSXCommandCall = async (onDone, context, args) => {
+  const arg = args?.trim();
+
+  // /copy all (alias: /copy chat, /copy history) \u2014 dump the whole chat
+  // transcript via the same renderer the export path uses. Bypasses the
+  // assistant-message picker; goes straight to clipboard (plus tmp file
+  // as a fallback for terminals without OSC 52).
+  if (arg === 'all' || arg === 'chat' || arg === 'history') {
+    if (!context.messages || context.messages.length === 0) {
+      onDone('Chat history is empty.', { display: 'system' });
+      return null;
+    }
+    let text: string;
+    try {
+      const { renderMessagesToPlainText } = await import('../../utils/exportRenderer.js');
+      text = await renderMessagesToPlainText(context.messages, context.options.tools, 80);
+    } catch (e) {
+      onDone(`Couldn't render chat history: ${e instanceof Error ? e.message : String(e)}`, { display: 'system' });
+      return null;
+    }
+    if (!text || text.trim().length === 0) {
+      onDone('Rendered chat history is empty.', { display: 'system' });
+      return null;
+    }
+    logEvent('tengu_copy', { block_count: 0, message_age: 0 });
+    const result = await copyOrWriteToFile(text, 'chat.md');
+    onDone(result, { display: 'system' });
+    return null;
+  }
+
   const texts = collectRecentAssistantTexts(context.messages);
   if (texts.length === 0) {
     onDone('No assistant message to copy');
@@ -340,11 +369,10 @@ export const call: LocalJSXCommandCall = async (onDone, context, args) => {
 
   // /copy N reaches back N-1 messages (1 = latest, 2 = second-to-latest, ...)
   let age = 0;
-  const arg = args?.trim();
   if (arg) {
     const n = Number(arg);
     if (!Number.isInteger(n) || n < 1) {
-      onDone(`Usage: /copy [N] where N is 1 (latest), 2, 3, \u2026 Got: ${arg}`);
+      onDone(`Usage: /copy [N|all] where N is 1 (latest), 2, 3, \u2026 or 'all' for full chat. Got: ${arg}`);
       return null;
     }
     if (n > texts.length) {

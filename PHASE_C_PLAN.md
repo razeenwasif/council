@@ -86,7 +86,7 @@ User answers in §9 force a different layout than the initial sketch. New target
 | Pane | Content | Width | Idle behavior | Active-session behavior |
 |------|---------|-------|---------------|-------------------------|
 | **Top bar** | title + stage | full | `council · ready` | `council · <prompt>` + `stage: <stage>` |
-| **Left column** | council voices (top) + discover voices (bottom) stacked | 18 cols | all pending `◯` | live status glyphs for the active mode's voices; the other mode stays all-pending |
+| **Left column** | council voices (top) + discover voices (bottom) stacked | 22 cols (was 18, bumped post-smoke) | all pending `◯` | live status glyphs for the active mode's voices; the other mode stays all-pending |
 | **Chat (center-left)** | the existing REPL chat scrollback via `chatContent` slot | flex, ~50% of remaining when active, full remaining when idle | full conversation + spinner + tool JSX | same content, narrower; still scrolls; voice output appears alongside |
 | **Voices output (center-right)** | focused voice's streaming output | flex, ~50% of remaining when active; **hidden entirely when idle** | (not rendered) | focused voice's `## Headline` / `## Position` / streaming text |
 | **Status (right)** | cumulative cost + tokens + elapsed | 22 cols | `cost $X.YZ` / `tokens N` / `idle` | live cost / tokens / `elapsed Xm Ys` |
@@ -347,7 +347,7 @@ Split center pane (chat + voice-output sub-panes during active session, single c
 - `scripts/preview-council-mode.tsx` — passes a `MockChat` component as the chat slot so the layout demonstrates the slot wiring. Visible in all three modes (council / discover / idle).
 
 **Width split math** (≥120 cols, active session):
-- `centerOuter = terminalCols − VOICE_LIST_WIDTH(18) − STATUS_WIDTH(24) − OUTER_CHROME(4)`
+- `centerOuter = terminalCols − VOICE_LIST_WIDTH(22) − STATUS_WIDTH(28) − OUTER_CHROME(4)` (widths bumped from 18/24 → 22/28 post-smoke to fit role names without truncation)
 - `chatOuter = floor(centerOuter / 2)`, `voiceOutputOuter = centerOuter − chatOuter`
 - At terminalCols=120: centerOuter=74, chat=37, voiceOutput=37
 - At terminalCols=200: centerOuter=154, chat=77, voiceOutput=77
@@ -466,6 +466,16 @@ Modals (`/theme`, `/spend`, `/help`, etc.) now overlay the entire screen instead
 **Effort**: ~30 min actual.
 
 **C.3 phase complete**: all three sub-phases (3.1 REPL surgery, 3.1 polish command alignment, 3.2 word wrap + StatusBar dedupe + modal positioning) are now done. Total Phase C effort across all sub-phases: ~2h 5min actual vs. 13–18h budget.
+
+### Width tuning (post-smoke 2026-06-07)
+
+User smoke surfaced label truncation: role names like "performance", "implementer", "methodologist" rendered as "performa…", "implementer…" etc. in the voice list, and the status pane labels were squeezed ("progress 0/0 run…").
+
+Bumped pane widths in `CouncilSessionScreen.tsx`:
+- `VOICE_LIST_WIDTH`: 18 → 22 (content width 18 instead of 14)
+- `STATUS_WIDTH`: 24 → 28 (content width 24 instead of 20)
+
+Net effect on center pane at ≥120 cols: ~8 fewer cols for chat + voice output split. Still ample.
 
 **Next options**:
 - **Phase D** (per the original `COUNCIL_MODE_REDESIGN.md` §6 plan) — Tab to cycle focused voice, Esc to background sessions, per-voice colors via `vendorBadge`, true streaming via `onProgress`, real synthesizer/executor/review content in voice-output sub-pane.

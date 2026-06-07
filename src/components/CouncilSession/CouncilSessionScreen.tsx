@@ -90,9 +90,13 @@ function idleVoicesFor(mode: 'council' | 'discover'): Voice[] {
 
 const WIDE_THRESHOLD = 120
 const NARROW_THRESHOLD = 80
-/** Outer (pane-level) width including the pane's own borderStyle="round". */
-const VOICE_LIST_WIDTH = 18
-const STATUS_WIDTH = 24
+/** Outer (pane-level) widths including each pane's own borderStyle="round"
+ *  (2 chars for the border + 2 for paddingX = 4 chars chrome per pane).
+ *  Bumped from 18/24 → 22/28 in C.3 follow-up so role names like
+ *  "performance", "implementer", "methodologist" render without `…`
+ *  truncation, and the status pane labels stop squeezing. */
+const VOICE_LIST_WIDTH = 22
+const STATUS_WIDTH = 28
 /** Outer-screen chrome: borderL + borderR + paddingL + paddingR = 4. */
 const OUTER_CHROME = 4
 

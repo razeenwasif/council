@@ -1210,6 +1210,23 @@ export function REPL({
     const prev = messagesRef.current;
     const next = typeof action === 'function' ? action(messagesRef.current) : action;
     messagesRef.current = next;
+    // Phase 3c: tag any newly-appended messages with the pane that owns
+    // them. lastSubmittedPaneRef is set by onSubmit at routing time;
+    // subsequent assistant / tool / system messages in the same exchange
+    // inherit that pane. Untagged historic messages default to council
+    // (matches pre-Phase-3c behavior). Ref-based, no re-render.
+    if (next.length > prev.length) {
+      const delta = next.length - prev.length;
+      const added =
+        prev.length === 0 || next[0] === prev[0]
+          ? next.slice(-delta)
+          : next.slice(0, delta);
+      for (const m of added) {
+        if (m?.uuid && !messagePaneRef.current.has(m.uuid)) {
+          messagePaneRef.current.set(m.uuid, lastSubmittedPaneRef.current);
+        }
+      }
+    }
     if (next.length < userInputBaselineRef.current) {
       // Shrank (compact/rewind/clear) — clamp so placeholderText's length
       // check can't go stale.
@@ -1396,6 +1413,15 @@ export function REPL({
   // per-pane submissions to the right orchestrator.
   const [focusedPane, setFocusedPane] = useState<'council' | 'research'>('council');
   const [unfocusedDraft, setUnfocusedDraft] = useState<string>('');
+  // Phase 3c (2026-06-07): per-pane scrollback. messagePaneRef tags
+  // each message UUID with the pane that owns it; lastSubmittedPaneRef
+  // tracks which pane the most recent submission belonged to. New
+  // messages without an explicit tag inherit lastSubmittedPaneRef.
+  // Filter at render: displayedMessages is then narrowed to the focused
+  // pane (with untagged messages defaulting to council — the original
+  // single-pane behavior).
+  const messagePaneRef = useRef<Map<string, 'council' | 'research'>>(new Map());
+  const lastSubmittedPaneRef = useRef<'council' | 'research'>('council');
   const [inputMode, setInputMode] = useState<PromptInputMode>('prompt');
   const [stashedPrompt, setStashedPrompt] = useState<{
     text: string;
@@ -3259,6 +3285,13 @@ export function REPL({
       input = `${slashCommand} ${input.trim()}`;
     }
 
+    // Phase 3c: record which pane this submission belongs to. The
+    // useEffect that watches `messages.length` will tag all subsequently
+    // appended messages with this pane until the next submission.
+    if (isFullscreenEnvEnabled() && !speculationAccept) {
+      lastSubmittedPaneRef.current = focusedPane;
+    }
+
     // Re-pin scroll to bottom on submit so the user always sees the new
     // exchange (matches OpenCode's auto-scroll behavior).
     repinScroll();
@@ -4666,7 +4699,24 @@ export function REPL({
   const usesSyncMessages = showStreamingText || !isLoading;
   // When viewing an agent, never fall through to leader — empty until
   // bootstrap/stream fills. Closes the see-leader-type-agent footgun.
-  const displayedMessages = viewedAgentTask ? viewedAgentTask.messages ?? [] : usesSyncMessages ? messages : deferredMessages;
+  const allDisplayedMessages = viewedAgentTask ? viewedAgentTask.messages ?? [] : usesSyncMessages ? messages : deferredMessages;
+  // Phase 3c: when the dual-pane session view is active, filter the
+  // rendered messages by the focused pane. Each message UUID is tagged
+  // in messagePaneRef when it's appended (via setMessages). Untagged
+  // messages default to council so historic conversations remain
+  // visible in the council pane (preserves pre-Phase-3c behavior).
+  // viewedAgentTask path skips the filter — agent transcripts are
+  // their own thing, not pane-scoped.
+  const displayedMessages = (() => {
+    if (viewedAgentTask) return allDisplayedMessages;
+    if (!isFullscreenEnvEnabled()) return allDisplayedMessages;
+    return allDisplayedMessages.filter((m: MessageType) => {
+      const uuid = m?.uuid;
+      if (!uuid) return true;
+      const tag = messagePaneRef.current.get(uuid) ?? 'council';
+      return tag === focusedPane;
+    });
+  })();
   // Show the placeholder until the real user message appears in
   // displayedMessages. userInputOnProcessing stays set for the whole turn
   // (cleared in resetLoadingState); this length check hides it once

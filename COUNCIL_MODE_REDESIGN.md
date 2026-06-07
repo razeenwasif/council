@@ -449,7 +449,7 @@ Phasing:
 | **2 — Per-pane drafts + `Alt+1` / `Alt+2` focus** | Single mounted `PromptInput` (architectural pragmatism — splitting REPL's dense `promptContent` JSX into two real instances was a major refactor with marginal user-visible benefit). REPL holds two drafts; `Alt+1`/`Alt+2` swap which draft is live and where the input renders. Focused pane gets the accent border; unfocused pane shows a ghost preview of its draft. | ✓ shipped |
 | **3a — Pane-aware submit routing** | Plain-text submits in the council pane auto-prepend `/council `; research pane auto-prepends `/discover `. Explicit slash commands bypass. | ✓ shipped |
 | **3b — Voice-output folds into matching pane** | Active session's `StagePane` content renders inside the pane whose orchestrator is running (instead of splitting the entire center). Both idle and active states use the same dual `WorkspacePane` layout. Bottom command pane removed entirely. | ✓ shipped |
-| **3c — Per-pane scrollbacks** | Each pane filters to its own message origin. Switching panes shows only that pane's history. Requires tagging messages with origin pane on creation + filtering at render. | pending |
+| **3c — Per-pane scrollbacks** | Each pane filters to its own message origin. Switching panes shows only that pane's history. Tag at `setMessages` time using a UUID → pane Map; filter `displayedMessages` by `focusedPane`. | ✓ shipped |
 | **4 — Combined status + "research" label** | Status sums both panes. Surface "research" instead of "discover" in the UI. | pending |
 
 **Phase 1 implementation notes**:
@@ -478,6 +478,14 @@ Phasing:
 - Internal `WorkspacePane` layout matrix updated to handle the four states (focused × hasVoiceOutput). When voice-output is present and the pane is unfocused, it takes the full middle area (no chat or placeholder above it).
 - Bottom command pane removed entirely — PromptInput always lives inside the focused pane.
 - Result: a council session running while the user is focused on research shows the voice-output progress in the council pane WITHOUT a PromptInput there; research keeps a writable PromptInput. The user can Alt+1 to bring up chat + PromptInput in council (the active session continues regardless).
+
+**Phase 3c implementation notes** (this commit):
+- `REPL.tsx`: added two refs for the per-pane scrollback filter. `messagePaneRef: Map<string, 'council' | 'research'>` tags each message UUID with its owning pane. `lastSubmittedPaneRef: 'council' | 'research'` tracks which pane just submitted; new messages inherit this until the next submission.
+- `onSubmit` (after routing): `lastSubmittedPaneRef.current = focusedPane` so all subsequent messages from this exchange get tagged.
+- `setMessages` (the wrapped version): after computing `next`, if any messages were appended, iterate and write `lastSubmittedPaneRef.current` into `messagePaneRef` for each new UUID. Idempotent — already-tagged UUIDs aren't overwritten.
+- `displayedMessages` computation: when fullscreen-enabled and not viewing an agent task, filter by `messagePaneRef.get(uuid) ?? 'council' === focusedPane`. Untagged messages default to council so pre-Phase-3c conversations remain visible in the council pane.
+- No schema changes to the Message type (which is typed as `any` in the stub `src/types/message.ts`). Side-channel Map keeps the tagging logic contained to REPL.tsx.
+- Edge case: when the user submits in research → council orchestrator (via explicit `/council run`) the messages get tagged 'research' (the focused pane at submit time). This is intentional — the user chose to dispatch council from their research workspace, so the conversation belongs there. Auto-routing of plain text keeps council prompts in council pane.
 
 ## 13. What's deferred to Phase C / D
 

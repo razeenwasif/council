@@ -479,6 +479,6 @@ Net effect on center pane at ≥120 cols: ~8 fewer cols for chat + voice output 
 
 **Next options**:
 - **Phase D** (per the original `COUNCIL_MODE_REDESIGN.md` §6 plan) — Tab to cycle focused voice, Esc to background sessions, per-voice colors via `vendorBadge`, true streaming via `onProgress`, real synthesizer/executor/review content in voice-output sub-pane.
-- **Cleanup tasks** — delete `src/components/StatusBar.tsx` and `src/components/StatusPane.tsx` (both dormant), delete `src/components/FullscreenLayout.tsx` (still compiling but mostly bypassed — modal slot now empty), remove the unused `src/components/CouncilSession/SessionCommand.tsx` (only used in preview script as a fallback that's never hit in production).
+- **Cleanup tasks** — ✓ `StatusBar.tsx` and `StatusPane.tsx` deleted (commit forthcoming). `FullscreenLayout.tsx` reviewed and KEPT — heavily referenced by `Messages.tsx` (UnseenDivider type), `VirtualMessageList.tsx` (ScrollChromeContext), `CompanionSprite.tsx`, ink internals. `SessionCommand.tsx` reviewed and KEPT — used as a fallback in `CouncilSessionScreen.tsx` when `promptContent` is not provided (preview script path).
 - **Smoke harden** — write integration tests for the full chat flow + slash command + /council + /discover paths through the new layout. Currently untested at the integration level.
 - **Pause** and move to research-prep work.

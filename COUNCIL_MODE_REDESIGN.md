@@ -293,7 +293,7 @@ Explicit non-goals for v1:
 - **Persisted session history** as a UI surface (the JSONL telemetry from `TELEMETRY_PLAN.md` is separate).
 - **Interactive voice reordering** in the VoiceList.
 - **Live editing of the prompt mid-session** — the session is locked to its initial prompt.
-- **The dormant `StatusPane.tsx`** from Phase 3b is not used here. The right-column status in session view is a *different* component (`SessionStatus.tsx`) because the data + layout assumptions differ.
+- **The dormant `StatusPane.tsx`** from Phase 3b is not used here. The right-column status in session view is a *different* component (`SessionStatus.tsx`) because the data + layout assumptions differ. *(Update 2026-06-07 post-cleanup: StatusPane.tsx has now been deleted — see `TUI_REDESIGN.md` §15. SessionStatus is the canonical right-pane status component.)*
 
 These are candidates for v2.
 
@@ -316,7 +316,7 @@ These are candidates for v2.
 - `src/coordinator/council/councilOrchestrator.ts` — primary source of council events
 - `src/coordinator/council/debateOrchestrator.ts` — primary source of debate events
 - `src/coordinator/council/vendorBadge.ts` — per-voice color tokens to reuse
-- `src/components/StatusPane.tsx` — dormant from Phase 3b. Reference for the SessionStatus implementation but not directly reused.
+- ~~`src/components/StatusPane.tsx`~~ — deleted in the post-Phase-C cleanup pass. Was dormant from Phase 3b; `SessionStatus.tsx` is the canonical right-pane component now.
 
 ## 11. Phase A status — shipped
 

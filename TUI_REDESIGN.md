@@ -379,3 +379,7 @@ The trailing "rk" of "work" is hidden behind the pane region. The tool became un
 - All amber references in `theme.ts`, `StatusBar.tsx`, `StatusPane.tsx`, and `TextInput.tsx` updated to the new value.
 
 **Phase 4/5 of the original spec (focus management, agent sidebar) are now obsolete** — the council-window redesign documented in `COUNCIL_MODE_REDESIGN.md` supersedes them. This document is now historical; refer to the new doc for active work.
+
+## 15. Component deletions (cleanup pass, post-Phase C)
+
+`src/components/StatusBar.tsx` and `src/components/StatusPane.tsx` deleted. Both were dormant after Phase C — StatusBar's responsibilities moved to `CouncilSession/SessionStatus.tsx` (the always-visible right pane), and StatusPane never had any callers (was Phase 3b dead code kept around as a reference). The Phase 3a status sections (§12) and Phase 3b sections (§13, §14) remain in this doc as historical record but the source files they reference no longer exist.

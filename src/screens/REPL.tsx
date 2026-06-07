@@ -4666,6 +4666,7 @@ export function REPL({
     {feature('MESSAGE_ACTIONS') && isFullscreenEnvEnabled() && !disableMessageActions ? <MessageActionsKeybindings handlers={messageActionHandlers} isActive={cursor !== null} /> : null}
     <CancelRequestHandler {...cancelRequestProps} />
     <MCPConnectionManager key={remountKey} dynamicMcpConfig={dynamicMcpConfig} isStrictMcpConfig={strictMcpConfig}>
+      <CouncilSessionScreen session={sessionState} terminalColumns={transcriptCols} chatContent={
       <FullscreenLayout scrollRef={scrollRef} overlay={toolPermissionOverlay} bottomFloat={isBuddyEnabled() && companionVisible && !companionNarrow ? <CompanionFloatingBubble /> : undefined} modal={centeredModal} modalScrollRef={modalScrollRef} dividerYRef={dividerYRef} hidePill={!!viewedAgentTask} hideSticky={!!viewedTeammateTask} newMessageCount={unseenDivider?.count ?? 0} onPillClick={() => {
         setCursor(null);
         jumpToNew(scrollRef.current);
@@ -4691,7 +4692,8 @@ export function REPL({
         {showSpinner && <SpinnerWithVerb mode={streamMode} spinnerTip={spinnerTip} responseLengthRef={responseLengthRef} apiMetricsRef={apiMetricsRef} overrideMessage={spinnerMessage} spinnerSuffix={stopHookSpinnerSuffix} verbose={verbose} loadingStartTimeRef={loadingStartTimeRef} totalPausedMsRef={totalPausedMsRef} pauseStartTimeRef={pauseStartTimeRef} overrideColor={spinnerColor} overrideShimmerColor={spinnerShimmerColor} hasActiveTools={inProgressToolUseIDs.size > 0} leaderIsIdle={!isLoading} />}
         {!showSpinner && !isLoading && !userInputOnProcessing && !hasRunningTeammates && isBriefOnly && !viewedAgentTask && <BriefIdleStatus />}
         {isFullscreenEnvEnabled() && <PromptInputQueuedCommands />}
-      </>} bottom={<Box flexDirection={isBuddyEnabled() && companionNarrow ? 'column' : 'row'} width="100%" alignItems={isBuddyEnabled() && companionNarrow ? undefined : 'flex-end'}>
+      </>} bottom={null} />
+      } promptContent={<Box flexDirection={isBuddyEnabled() && companionNarrow ? 'column' : 'row'} width="100%" alignItems={isBuddyEnabled() && companionNarrow ? undefined : 'flex-end'}>
         {isBuddyEnabled() && companionNarrow && isFullscreenEnvEnabled() && companionVisible ? <CompanionSprite /> : null}
         <Box flexDirection="column" flexGrow={1}>
           <StatusBar isLoading={isLoading} loadingStartMs={loadingStartTimeRef.current} pausedMs={totalPausedMsRef.current} pauseStartMs={pauseStartTimeRef.current} runningAgentCount={inProgressToolUseIDs.size} />
@@ -5101,22 +5103,15 @@ export function REPL({
       </Box>} />
     </MCPConnectionManager>
   </KeybindingSetup>;
-  // Phase B — when a council/discover session is active, replace the
-  // regular REPL chrome with the dedicated CouncilSessionScreen. The
-  // session bus drives this via useSessionState above. The same
-  // AlternateScreen wrapper applies so the session view participates in
-  // the same fullscreen lifecycle as the regular REPL.
-  if (sessionState) {
-    const sessionScreen = <KeybindingSetup>
-      <CouncilSessionScreen session={sessionState} terminalColumns={transcriptCols} />
-    </KeybindingSetup>;
-    if (isFullscreenEnvEnabled()) {
-      return <AlternateScreen mouseTracking={isMouseTrackingEnabled()}>
-        {sessionScreen}
-      </AlternateScreen>;
-    }
-    return sessionScreen;
-  }
+  // Phase C — CouncilSessionScreen is the outermost layout always
+  // (post-MCPConnectionManager). The existing scrollable content flows
+  // into its `chatContent` slot; the existing bottom flows into
+  // `promptContent`. When sessionState is non-null, the voice-output
+  // sub-pane appears next to chat and left voice panes light up live.
+  // When sessionState is null (idle), only the chat sub-pane shows.
+  // The Phase B early-return for sessionState was removed — the screen
+  // handles both branches internally via the `session` prop being
+  // nullable.
   if (isFullscreenEnvEnabled()) {
     return <AlternateScreen mouseTracking={isMouseTrackingEnabled()}>
       {mainReturn}

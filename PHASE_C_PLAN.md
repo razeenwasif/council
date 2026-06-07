@@ -359,3 +359,42 @@ Split center pane (chat + voice-output sub-panes during active session, single c
 **Effort**: ~50 min actual (budget 3–4h). Below estimate because the ChatPane primitive is thin and the conditional split was a single JSX edit.
 
 **Next**: C.3 — REPL.tsx integration. Replace the conditional early-return with always-render CouncilSessionScreen; route existing scrollable content into chatContent slot; PromptInput into promptContent slot.
+
+## 17. C.3.1 status — shipped
+
+REPL.tsx restructured: CouncilSessionScreen is now the outermost layout always (post-MCPConnectionManager). The existing scrollable content flows into the `chatContent` slot via `FullscreenLayout`. The existing bottom (PromptInput + permissions + StatusBar etc.) flows into the `promptContent` slot.
+
+**Files modified**:
+- `src/screens/REPL.tsx` — three surgical edits:
+  - Insert `<CouncilSessionScreen ... chatContent={` opening before `<FullscreenLayout` (line 4668)
+  - Replace `</>} bottom={<Box ...>` with `</>} bottom={null} />} promptContent={<Box ...>` to close FullscreenLayout self-contained (no bottom prop), then open promptContent with the same Box
+  - Existing closing `</Box>} />` at line ~5101 now closes promptContent + CouncilSessionScreen instead of bottom + FullscreenLayout — same text, different semantic
+  - Removed the obsolete `if (sessionState)` early-return block — CouncilSessionScreen handles both nullable and non-null sessions internally
+
+**End-to-end flow at idle**:
+1. `./bin/council` launches with `CLAUDE_CODE_NO_FLICKER=1` → alt-screen on
+2. REPL renders with `sessionState=null`
+3. CouncilSessionScreen renders with `chatContent` = the existing FullscreenLayout-wrapped chat tree (Messages + spinner + tool JSX + modal + overlay + pill + bottomFloat)
+4. `promptContent` = the existing Box with PromptInput + StatusBar + permissionStickyFooter + SessionBackgroundHint + dialogs
+5. Visual: outer orange-bordered session-view chrome, stacked-left voice panes (council + discover all pending), single chat sub-pane (full center width) with the FullscreenLayout-rendered scrollback, status pane on the right, command pane at the bottom with the real PromptInput
+
+**End-to-end flow during active session**:
+- `/council` or `/discover` fires → sessionState populates → re-render
+- Council pane lights up live; discover stays pending (and vice versa for /discover)
+- Voice-output sub-pane appears next to chat — chat narrows to ~half center width
+- Voice progress streams in the voice-output sub-pane
+- session-end → sessionState clears → back to idle layout
+
+**Known limitations (C.3.2 work)**:
+- **Word wrap**: Messages inside FullscreenLayout still call `useTerminalSize` for word-wrap calculations — they get real terminal columns, not chat-pane-allocated columns. Result: long lines may overflow into voice output sub-pane during active sessions. This is the Phase 3b bug recurring on the chat side. Fix: migrate Messages descendants to `useEffectiveTerminalSize` (the C.1 primitive is in place for exactly this).
+- **Modal positioning**: FullscreenLayout's modal slot still renders modals absolute-positioned relative to FullscreenLayout's viewport (which is inside the chat sub-pane). Result: `/theme`, `/spend`, `/help` etc. modals overlay the chat sub-pane only, not the full screen. Cosmetic — they work, just look small. Fix: add `overlayContent` slot to CouncilSessionScreen and route modals there.
+- **StatusBar duplication**: the Phase 3a single-line status bar in promptContent now duplicates info shown in the SessionStatus right pane. Cosmetic redundancy — fix is to remove StatusBar from REPL's bottom now that SessionStatus covers it more prominently.
+- **Voice output sub-pane uses StagePane placeholder**: still shows `[stage — content TBD]` for non-proposal stages. Real synthesizer/executor/review content is Phase D.
+
+**Verification**: `bun run build` clean. Council launches in alt-screen mode without errors (PTY smoke via `script -q -c 'timeout 2 ./bin/council'` exited cleanly with SIGTERM-from-timeout, not a crash).
+
+**Live smoke pending user confirmation**: needs an actual interactive test in a ≥120-col terminal to verify chat renders in the chat sub-pane, prompt input lands in command pane, slash commands open modals (even if at wrong position), and `/council` triggers the live voice-state updates.
+
+**Effort**: ~35 min actual (budget 4–5h for C.3 part 1). Below estimate because the JSX surgery turned out to be three precise edits rather than a sprawling rewrite — the existing closing `</Box>} />` worked verbatim for the new structure due to balanced bracket arithmetic.
+
+**Next**: C.3.2 — migrate Messages-tree word-wrap to `useEffectiveTerminalSize`, add overlayContent slot for proper modal positioning, remove StatusBar duplication, and live-smoke the integrated screen.

@@ -43,11 +43,11 @@ const STATUS_WIDTH = 24
 const OUTER_CHROME = 4
 
 const ACCENT = 'rgb(255,106,0)'
-/** Solid near-black fill with a subtle warm undertone, so transparent-terminal
- *  users see a solid dark surface instead of their desktop, and the dark
- *  surface reads as "orange theme" rather than "blue theme". Pure black is
- *  too flat; #120B04 ≈ rgb(18,11,4) is warm but firmly in the "dark" range. */
-const BG = 'rgb(18,11,4)'
+/** Onyx `obsidian_dark` bg — #1e1e24 ≈ rgb(30,30,36). Matches what the
+ *  user's Onyx config (theme = "dark") uses. Slight cool tint (B=36 vs
+ *  R=G=30), but with the orange borders + accents on top, the overall
+ *  composition reads as the orange-themed Onyx variant. */
+const BG = 'rgb(30,30,36)'
 
 /** Width *inside* a pane after its round border consumes 1 char each side. */
 function paneInner(outerWidth: number): number {

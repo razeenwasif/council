@@ -22,6 +22,14 @@ if (!process.env.COUNCIL_OFF) {
   process.env.CLAUDE_CODE_COUNCIL_MODE = '1'
 }
 
+// Most modern terminals (Windows Terminal, kitty, Alacritty, iTerm2,
+// WezTerm, Ghostty) support 24-bit truecolor but don't always set
+// COLORTERM. Without it, chalk downgrades RGB to the nearest 256-color
+// palette slot — dark colors with subtle tints (e.g. our orange-themed
+// dark bgs) snap to flat gray. Default to truecolor unless explicitly
+// overridden (e.g. COLORTERM=8bit for old terminals).
+process.env.COLORTERM = process.env.COLORTERM ?? 'truecolor'
+
 // Force synchronous agent dispatch — required by the deterministic
 // orchestrator (default as of v1.x). Coordinator mode (just set above)
 // would otherwise route every AgentTool.call into the background-task

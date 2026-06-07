@@ -1,6 +1,6 @@
 import chalk from 'chalk'
 import cliBoxes, { type Boxes, type BoxStyle } from 'cli-boxes'
-import { applyColor } from './colorize.js'
+import { applyColor, colorize } from './colorize.js'
 import type { DOMNode } from './dom.js'
 import type Output from './output.js'
 import { stringWidth } from './stringWidth.js'
@@ -71,8 +71,12 @@ function styleBorderLine(
   line: string,
   color: Color | undefined,
   dim: boolean | undefined,
+  backgroundColor?: Color | undefined,
 ): string {
   let styled = applyColor(line, color)
+  if (backgroundColor) {
+    styled = colorize(styled, backgroundColor, 'background')
+  }
   if (dim) {
     styled = chalk.dim(styled)
   }
@@ -114,6 +118,11 @@ const renderBorder = (
     const dimRightBorderColor =
       node.style.borderRightDimColor ?? node.style.borderDimColor
 
+    // When the Box has an explicit backgroundColor, paint border cells with
+    // that bg too. Without this, border characters render with terminal-
+    // default bg and transparent terminals leak the desktop through them.
+    const bg = node.style.backgroundColor
+
     const showTopBorder = node.style.borderTop !== false
     const showBottomBorder = node.style.borderBottom !== false
     const showLeftBorder = node.style.borderLeft !== false
@@ -141,14 +150,15 @@ const renderBorder = (
         box.top,
       )
       topBorder =
-        styleBorderLine(before, topBorderColor, dimTopBorderColor) +
-        text +
-        styleBorderLine(after, topBorderColor, dimTopBorderColor)
+        styleBorderLine(before, topBorderColor, dimTopBorderColor, bg) +
+        (bg ? colorize(text, bg, 'background') : text) +
+        styleBorderLine(after, topBorderColor, dimTopBorderColor, bg)
     } else if (showTopBorder) {
       topBorder = styleBorderLine(
         topBorderLine,
         topBorderColor,
         dimTopBorderColor,
+        bg,
       )
     }
 
@@ -164,17 +174,19 @@ const renderBorder = (
 
     verticalBorderHeight = Math.max(0, verticalBorderHeight)
 
-    let leftBorder = (applyColor(box.left, leftBorderColor) + '\n').repeat(
-      verticalBorderHeight,
-    )
+    const leftChar = bg
+      ? colorize(applyColor(box.left, leftBorderColor), bg, 'background')
+      : applyColor(box.left, leftBorderColor)
+    let leftBorder = (leftChar + '\n').repeat(verticalBorderHeight)
 
     if (dimLeftBorderColor) {
       leftBorder = chalk.dim(leftBorder)
     }
 
-    let rightBorder = (applyColor(box.right, rightBorderColor) + '\n').repeat(
-      verticalBorderHeight,
-    )
+    const rightChar = bg
+      ? colorize(applyColor(box.right, rightBorderColor), bg, 'background')
+      : applyColor(box.right, rightBorderColor)
+    let rightBorder = (rightChar + '\n').repeat(verticalBorderHeight)
 
     if (dimRightBorderColor) {
       rightBorder = chalk.dim(rightBorder)
@@ -197,14 +209,15 @@ const renderBorder = (
         box.bottom,
       )
       bottomBorder =
-        styleBorderLine(before, bottomBorderColor, dimBottomBorderColor) +
-        text +
-        styleBorderLine(after, bottomBorderColor, dimBottomBorderColor)
+        styleBorderLine(before, bottomBorderColor, dimBottomBorderColor, bg) +
+        (bg ? colorize(text, bg, 'background') : text) +
+        styleBorderLine(after, bottomBorderColor, dimBottomBorderColor, bg)
     } else if (showBottomBorder) {
       bottomBorder = styleBorderLine(
         bottomBorderLine,
         bottomBorderColor,
         dimBottomBorderColor,
+        bg,
       )
     }
 

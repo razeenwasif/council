@@ -13,6 +13,16 @@
  * Exit with Ctrl-C.
  */
 
+// NOTE: chalk reads COLORTERM at module-init time, BEFORE this script's
+// top-level statements run (ESM imports hoist). So setting
+// process.env.COLORTERM here is too late — set it at the shell:
+//
+//   COLORTERM=truecolor bun run scripts/preview-council-mode.tsx
+//
+// Or `export COLORTERM=truecolor` in your shell rc. The real `bin/council`
+// binary sets COLORTERM itself before any bundle import, so the production
+// launch path doesn't need this dance.
+
 import React from 'react'
 import { enableConfigs } from '../src/utils/config.js'
 import { render, Box, Text, useInput } from '../src/ink.js'

@@ -385,6 +385,27 @@ Replaces the static mock data with live event-driven state from the council / de
 
 **Effort**: Phase B budget was 6h; actual ~3h thanks to the clean adapter-callback pattern already in the orchestrators.
 
+## 14. Phase D status — in progress
+
+Polish + UX improvements on top of the Phase C foundation. Tracking progress here as items land.
+
+| Item | Status |
+|------|--------|
+| Per-voice colors via `vendorBadge.ts` | ✓ shipped |
+| Esc to background sessions | pending |
+| Real chunk-by-chunk streaming via AgentTool `onProgress` | pending |
+| Real synthesizer / executor / review stage content | pending |
+| Tab to cycle focused voice | deferred (low impact + Tab conflicts with PromptInput) |
+| `SessionCommand` real input wiring | n/a — production already uses `promptContent` slot, fallback only matters for preview script |
+
+### Per-voice colors (shipped)
+
+`src/components/CouncilSession/VoiceList.tsx`: each voice's role label now renders in its `vendorBadge.ts` color. Pending voices stay dimmed (preserves the "at-idle these are what could fire" visual affordance); active voices show full vendor color; focused voice gets the orange `▸` prefix + bold styling.
+
+Council voice colors: architect/executor yellow (Anthropic), implementer cyan (DeepSeek), skeptic/synthesizer blue (Google), critic green (OpenAI), tester red (Alibaba), security purple (Mistral), performance orange (Mistral).
+
+Discover voice colors: hypothesizer yellow, empiricist blue, devils_advocate purple, methodologist red, synthesist blue.
+
 ## 13. What's deferred to Phase C / D
 
 **Note (2026-06-07)**: Phase C scope was reframed mid-Phase-B based on user feedback — the session view becomes the *outermost layout always*, not just a session-mode replacement. See `PHASE_C_PLAN.md` for the dedicated plan including layout decisions (stacked-left voice panes, split center, cumulative idle status).

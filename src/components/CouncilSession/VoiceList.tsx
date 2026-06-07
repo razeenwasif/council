@@ -1,5 +1,6 @@
 import React from 'react'
 import { Box, Text } from '../../ink.js'
+import { getCouncilVendorBadge } from '../../coordinator/council/vendorBadge.js'
 import type { Voice, VoiceListMode } from './types.js'
 
 /**
@@ -57,13 +58,20 @@ export function VoiceList({ voices, focusedIndex, availableColumns }: VoiceListP
         const isFocused = i === focusedIndex
         const glyph = statusGlyph(v.status)
         const label = v.role.length > labelMaxLen ? `${v.role.slice(0, labelMaxLen - 1)}…` : v.role
+        // Phase D: per-voice color from vendorBadge so each role has a
+        // visual identity regardless of status. Pending voices stay
+        // dimmed (preserves the at-idle "this is what could fire"
+        // affordance); active voices show full vendor color; focused
+        // voice is bold + accent-prefixed.
+        const vendor = getCouncilVendorBadge(v.role)
+        const labelColor = vendor?.color ?? undefined
         return (
           <Box key={`${v.role}-${i}`} flexDirection="row" justifyContent="space-between">
             <Box>
               <Text color={isFocused ? ACCENT : undefined} bold={isFocused}>
                 {isFocused ? '▸ ' : '  '}
               </Text>
-              <Text dimColor={glyph.dim} bold={isFocused}>
+              <Text color={labelColor} dimColor={glyph.dim} bold={isFocused}>
                 {label}
               </Text>
             </Box>

@@ -5,6 +5,7 @@
  * Usage:
  *   bun run scripts/preview-council-mode.tsx                  # council mock
  *   bun run scripts/preview-council-mode.tsx discover         # discover mock
+ *   bun run scripts/preview-council-mode.tsx idle             # idle state (no session)
  *
  * The script mounts the static CouncilSessionScreen with hard-coded
  * mock data so we can eyeball the layout at the current terminal width.
@@ -37,8 +38,15 @@ import {
 // or render throws "Config accessed before allowed."
 enableConfigs()
 
-const kind = process.argv[2] === 'discover' ? 'discover' : 'council'
-const session = kind === 'discover' ? MOCK_DISCOVER_SESSION : MOCK_COUNCIL_SESSION
+const arg = process.argv[2] ?? 'council'
+const kind: 'council' | 'discover' | 'idle' =
+  arg === 'discover' ? 'discover' : arg === 'idle' ? 'idle' : 'council'
+const session =
+  kind === 'idle'
+    ? null
+    : kind === 'discover'
+      ? MOCK_DISCOVER_SESSION
+      : MOCK_COUNCIL_SESSION
 
 function App(): React.ReactNode {
   const [cols, setCols] = React.useState(process.stdout.columns ?? 120)

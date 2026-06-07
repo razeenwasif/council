@@ -305,4 +305,30 @@ Branch: `feat/phase-c-session-default` (off `feat/council-mode`).
 
 **Effort**: ~45 min actual (budget 1–2h). Below estimate because the hook pattern is simple and test scaffolding from existing tests (`useApiKeyVerification.test.tsx`) was reusable.
 
-**Next**: C.2a — stacked-left voice panes with idle pending rendering.
+## 15. C.2a status — shipped
+
+Stacked-left voice panes (council + discover always visible) with idle pending rendering.
+
+**Files modified**:
+- `src/components/CouncilSession/types.ts` — added `'idle'` to `Stage` union, `VoiceListMode` type, `COUNCIL_VOICE_ROLES` and `DISCOVER_VOICE_ROLES` canonical role lists for idle placeholder rendering
+- `src/components/CouncilSession/VoiceList.tsx` — added optional `mode` prop. No rendering change yet — the prop is informational documentation that the screen passes; consumed in C.2b when per-pane behavior diverges
+- `src/components/CouncilSession/CouncilSessionScreen.tsx` — major refactor:
+  - `session` prop is now `SessionState | null`. Idle is the null case.
+  - Resolves voices for both council and discover panes independently. Active mode's voices come from the session; the other shows canonical roles in pending state.
+  - Left column wraps both pane Boxes (council on top, discover below) with their own round borders
+  - TopBar drops the "session" suffix at idle and shows "council · ready · stage: idle"
+  - SessionStatus / StagePane unchanged in this sub-phase; same single-pane center
+- `scripts/preview-council-mode.tsx` — new `idle` argv option (`bun run scripts/preview-council-mode.tsx idle`) renders with `session={null}`
+
+**What `idleVoicesFor(mode)` returns**: an array of `Voice` with `status: 'pending'`, `headline: ''`, `output: ''`, `model: ''` (unknown until spawn fires).
+
+**Limitations carried forward to C.2b**:
+- StagePane still occupies the entire center pane. The chat sub-pane + voice output sub-pane split is C.2b work.
+- `chatContent` / `promptContent` slots not yet added — also C.2b.
+- Collapsed (narrow) layout still uses single VoiceList instance for the council list only — Phase D polish if anyone runs at 80–119 cols.
+
+**Verification**: `bun run build` clean, useEffectiveTerminalSize tests still 4/4. Live preview at idle / council / discover all render without error.
+
+**Effort**: ~75 min actual (budget 2–3h).
+
+**Next**: C.2b — split center pane into chat + voice-output sub-panes, add slot props, wrap chatContent with `EffectiveTerminalSizeProvider`.

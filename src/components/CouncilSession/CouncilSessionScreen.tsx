@@ -3,7 +3,12 @@ import { Box, Text } from '../../ink.js'
 import { SessionCommand } from './SessionCommand.js'
 import { SessionStatus } from './SessionStatus.js'
 import { StagePane } from './StagePane.js'
-import type { SessionState } from './types.js'
+import {
+  COUNCIL_VOICE_ROLES,
+  DISCOVER_VOICE_ROLES,
+  type SessionState,
+  type Voice,
+} from './types.js'
 import { VoiceList } from './VoiceList.js'
 
 /**
@@ -18,20 +23,41 @@ import { VoiceList } from './VoiceList.js'
  *
  * Width-responsive layout:
  *
- *   ≥120 cols  three columns (voices · current · status)
+ *   ≥120 cols  three columns (left stack · center · status)
  *   80-119     single column with voice bar collapsed to a header line
  *   <80        returns null; caller should render the regular REPL
  *
- * Phase A renders from a static SessionState (the preview script
- * supplies a hard-coded mock). Phase B replaces the static state with
- * a useSessionState() hook subscribing to orchestrator events.
+ * Phase C: layout reframed per user feedback (2026-06-07). Left column
+ * is now two stacked voice panes (council on top, discover below) —
+ * BOTH always visible regardless of which mode is active. When a
+ * council session is running, council voices light up live; discover
+ * stays in pending state. Same the other way for /discover.
+ *
+ * Idle state (`session === null`): both lists render with canonical
+ * role names in pending status. The center pane shows the chat content
+ * (slot) when present. The voice-output sub-pane only renders during
+ * active sessions — this is C.2b work; C.2a (current commit) just sets
+ * up the stacked-left structure.
  */
 export type CouncilSessionScreenProps = {
-  session: SessionState
+  /** Active session or null at idle. */
+  session: SessionState | null
   /** Total terminal width. We compute pane widths from this. */
   terminalColumns: number
-  /** Current command buffer (used by SessionCommand). Phase A: ''. */
+  /** Current command buffer (used by SessionCommand). C.2a default: ''. */
   commandValue?: string
+}
+
+/** Build an idle Voice array for a given mode — all roles in pending status. */
+function idleVoicesFor(mode: 'council' | 'discover'): Voice[] {
+  const roles = mode === 'council' ? COUNCIL_VOICE_ROLES : DISCOVER_VOICE_ROLES
+  return roles.map(role => ({
+    role,
+    model: '', // model unknown until the spawn fires
+    status: 'pending',
+    headline: '',
+    output: '',
+  }))
 }
 
 const WIDE_THRESHOLD = 120
@@ -73,11 +99,43 @@ export function CouncilSessionScreen({
     ? interiorWidth - VOICE_LIST_WIDTH - STATUS_WIDTH
     : interiorWidth
 
-  const focusedVoice = session.voices[session.focusedVoiceIndex] ?? session.voices[0] ?? null
-  const runningVoices = session.voices.filter(v => v.status === 'running').map(v => v.role)
+  // Resolve voices for both panes. When session is active and matches the
+  // mode, use live voices; otherwise pending placeholders from the
+  // canonical role list. This implements §9 Q3 of PHASE_C_PLAN: both
+  // lists always visible; only the active mode's pane shows live status.
+  const councilVoices: readonly Voice[] =
+    session?.kind === 'council' ? session.voices : idleVoicesFor('council')
+  const discoverVoices: readonly Voice[] =
+    session?.kind === 'discover' ? session.voices : idleVoicesFor('discover')
+
+  // Focus indices: -1 for the inactive mode so its pane shows no `▸`.
+  const councilFocusedIndex =
+    session?.kind === 'council' ? session.focusedVoiceIndex : -1
+  const discoverFocusedIndex =
+    session?.kind === 'discover' ? session.focusedVoiceIndex : -1
+
+  const focusedVoice = session
+    ? session.voices[session.focusedVoiceIndex] ?? session.voices[0] ?? null
+    : null
+  const runningVoices = session
+    ? session.voices.filter(v => v.status === 'running').map(v => v.role)
+    : []
   const centerTitle = focusedVoice
     ? `current — ${focusedVoice.role} (${focusedVoice.model})`
-    : 'current'
+    : 'chat'
+
+  // Idle: no elapsed timer + cumulative cost (handled by SessionStatus
+  // when status.startMs === 0). At idle we synthesize a status block.
+  const status = session?.status ?? {
+    costUsd: 0, // SessionStatus reads getTotalCost() so this is fine
+    totalTokens: 0,
+    startMs: 0,
+    totalAgents: 0,
+    runningAgents: 0,
+  }
+  const stage = session?.stage ?? 'idle'
+  const promptSummary = session?.prompt ?? 'ready'
+  const kind: 'council' | 'discover' = session?.kind ?? 'council'
 
   return (
     <Box
@@ -90,26 +148,45 @@ export function CouncilSessionScreen({
       paddingX={1}
     >
       <TopBar
-        kind={session.kind}
-        prompt={session.prompt}
-        stage={session.stage}
+        kind={kind}
+        prompt={promptSummary}
+        stage={stage}
         availableColumns={interiorWidth}
       />
       {isWide ? (
         <Box flexDirection="row" flexGrow={1} backgroundColor={BG}>
-          <Box
-            width={VOICE_LIST_WIDTH}
-            borderStyle="round"
-            borderColor={ACCENT}
-            backgroundColor={BG}
-            flexDirection="column"
-            borderText={paneTitle('voices')}
-          >
-            <VoiceList
-              voices={session.voices}
-              focusedIndex={session.focusedVoiceIndex}
-              availableColumns={paneInner(VOICE_LIST_WIDTH)}
-            />
+          {/* Left column: stacked council + discover voice panes. Both
+              always visible per §9 Q3 of PHASE_C_PLAN. The active mode's
+              pane shows live status; the other stays in pending. */}
+          <Box width={VOICE_LIST_WIDTH} flexDirection="column">
+            <Box
+              borderStyle="round"
+              borderColor={ACCENT}
+              backgroundColor={BG}
+              flexDirection="column"
+              borderText={paneTitle('council')}
+            >
+              <VoiceList
+                voices={councilVoices}
+                focusedIndex={councilFocusedIndex}
+                availableColumns={paneInner(VOICE_LIST_WIDTH)}
+                mode="council"
+              />
+            </Box>
+            <Box
+              borderStyle="round"
+              borderColor={ACCENT}
+              backgroundColor={BG}
+              flexDirection="column"
+              borderText={paneTitle('discover')}
+            >
+              <VoiceList
+                voices={discoverVoices}
+                focusedIndex={discoverFocusedIndex}
+                availableColumns={paneInner(VOICE_LIST_WIDTH)}
+                mode="discover"
+              />
+            </Box>
           </Box>
           <Box
             flexGrow={1}
@@ -120,7 +197,7 @@ export function CouncilSessionScreen({
             borderText={paneTitle(centerTitle)}
           >
             <StagePane
-              stage={session.stage}
+              stage={stage}
               focusedVoice={focusedVoice}
               availableColumns={paneInner(centerOuter)}
             />
@@ -134,7 +211,7 @@ export function CouncilSessionScreen({
             borderText={paneTitle('status')}
           >
             <SessionStatus
-              status={session.status}
+              status={status}
               availableColumns={paneInner(STATUS_WIDTH)}
               runningVoices={runningVoices}
             />
@@ -150,8 +227,8 @@ export function CouncilSessionScreen({
             borderText={paneTitle('voices')}
           >
             <CollapsedVoiceBar
-              voices={session.voices}
-              focusedIndex={session.focusedVoiceIndex}
+              voices={councilVoices}
+              focusedIndex={councilFocusedIndex >= 0 ? councilFocusedIndex : 0}
               availableColumns={paneInner(interiorWidth)}
             />
           </Box>
@@ -164,7 +241,7 @@ export function CouncilSessionScreen({
             borderText={paneTitle(centerTitle)}
           >
             <StagePane
-              stage={session.stage}
+              stage={stage}
               focusedVoice={focusedVoice}
               availableColumns={paneInner(interiorWidth)}
             />
@@ -177,7 +254,7 @@ export function CouncilSessionScreen({
             borderText={paneTitle('status')}
           >
             <SessionStatus
-              status={session.status}
+              status={status}
               availableColumns={paneInner(interiorWidth)}
               runningVoices={runningVoices}
             />
@@ -209,7 +286,14 @@ function TopBar({
   stage: SessionState['stage']
   availableColumns: number
 }): React.ReactNode {
-  const title = kind === 'council' ? 'council session' : 'discover session'
+  const isIdle = stage === 'idle'
+  // At idle the "session" suffix is misleading — the screen is the
+  // chrome, not a session-mode replacement. Drop it when no session.
+  const title = isIdle
+    ? 'council'
+    : kind === 'council'
+      ? 'council session'
+      : 'discover session'
   // Leave 18 chars for `· stage: <up-to-9>` plus padding.
   const promptBudget = Math.max(10, availableColumns - title.length - 24)
   const promptSummary = prompt.length > promptBudget ? `${prompt.slice(0, promptBudget - 1)}…` : prompt

@@ -1,20 +1,29 @@
 import React from 'react'
 import { Box, Text } from '../../ink.js'
-import type { Voice } from './types.js'
+import type { Voice, VoiceListMode } from './types.js'
 
 /**
- * Left pane — list of voices with status glyph and role label.
- *
- * Phase A: static render from passed-in voices. Phase D adds Tab-cycle
- * focus + Enter to select. For now the focused voice is indicated by
- * `▸` in orange; others get a space.
+ * Voice list pane — renders a list of voices with status glyph and role
+ * label. Phase C's stacked-left layout uses two instances of this
+ * component (one for council voices, one for discover voices), each
+ * bound to a single mode.
  *
  * Width is controlled by the parent screen via flex (typically 16 cols).
  */
 export type VoiceListProps = {
+  /** Voices to render. May be empty (idle) — caller passes the canonical
+   *  role list with pending status in that case (see COUNCIL_VOICE_ROLES
+   *  and DISCOVER_VOICE_ROLES in types.ts). */
   voices: readonly Voice[]
+  /** Index of focused voice within `voices`. Pass -1 when no focus
+   *  belongs to this pane (i.e. session is active in the OTHER mode). */
   focusedIndex: number
   availableColumns: number
+  /** Which mode this list represents. Drives the pane's identity even
+   *  when not rendering active voices — at idle, the council pane still
+   *  shows the 7 council role names; the discover pane still shows the
+   *  4 discover role names. */
+  mode?: VoiceListMode
 }
 
 const ACCENT = 'rgb(255,106,0)'

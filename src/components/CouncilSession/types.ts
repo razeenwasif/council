@@ -7,12 +7,38 @@
  */
 
 export type Stage =
+  | 'idle'
   | 'proposal'
   | 'synthesis'
   | 'execution'
   | 'review'
   | 'revision'
   | 'done'
+
+/** Which mode's voices a VoiceList renders. Used in Phase C for the
+ *  stacked-left layout: a council list on top, a discover list below.
+ *  Each instance is bound to one mode regardless of which mode is
+ *  currently active in the session. */
+export type VoiceListMode = 'council' | 'discover'
+
+/** Canonical role lists per mode — referenced from the screen when
+ *  the user is idle (no session) and we need pending placeholders. */
+export const COUNCIL_VOICE_ROLES: readonly string[] = [
+  'architect',
+  'implementer',
+  'skeptic',
+  'critic',
+  'tester',
+  'security',
+  'performance',
+] as const
+
+export const DISCOVER_VOICE_ROLES: readonly string[] = [
+  'hypothesizer',
+  'empiricist',
+  'devils_advocate',
+  'methodologist',
+] as const
 
 export type VoiceStatus =
   | 'pending'

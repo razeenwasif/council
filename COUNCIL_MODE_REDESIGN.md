@@ -317,3 +317,90 @@ These are candidates for v2.
 - `src/coordinator/council/debateOrchestrator.ts` — primary source of debate events
 - `src/coordinator/council/vendorBadge.ts` — per-voice color tokens to reuse
 - `src/components/StatusPane.tsx` — dormant from Phase 3b. Reference for the SessionStatus implementation but not directly reused.
+
+## 11. Phase A status — shipped
+
+Landed in commit `62c6048` (initial scaffold) and `5cbcd35` (truecolor + border-bg + Onyx bg).
+
+**Files created** under `src/components/CouncilSession/`:
+
+| File | Role |
+|------|------|
+| `types.ts` | `SessionState` / `Voice` / `Stage` / `VoiceStatus` type definitions |
+| `mockData.ts` | `MOCK_COUNCIL_SESSION` (7-voice mid-proposal) + `MOCK_DISCOVER_SESSION` (4-voice just started) |
+| `VoiceList.tsx` | Left pane — status glyphs (`● ▸ ✓ ◯ ✗ ⏸`) |
+| `StagePane.tsx` | Center pane — focused voice's output; placeholder for non-proposal stages until Phase B/D |
+| `SessionStatus.tsx` | Right pane — cost / tokens / elapsed / active list with `useSecondTick` |
+| `SessionCommand.tsx` | Bottom command bar — static visual stub (real input wires in Phase D) |
+| `CouncilSessionScreen.tsx` | Top-level layout — per-pane round borders via Council's `borderText`, solid `#1e1e24` bg, width-responsive collapse |
+| `index.ts` | Public re-exports |
+
+Plus `scripts/preview-council-mode.tsx` — standalone Ink renderer with mock data:
+
+```bash
+COLORTERM=truecolor bun run scripts/preview-council-mode.tsx           # council
+COLORTERM=truecolor bun run scripts/preview-council-mode.tsx discover  # discover
+```
+
+**The hard rule honored** (`§5`): every child receives explicit `availableColumns`. No child calls `useTerminalSize()`. This is what makes the multi-pane layout work without the Phase 3b wrap bug.
+
+**Surprises discovered + fixed during Phase A**:
+
+- Ink's `backgroundColor` doesn't auto-inherit through child Boxes — applied defensively to every pane.
+- Ink's render layer didn't apply Box `backgroundColor` to border characters — modified `src/ink/render-border.ts` to do so when `backgroundColor` is set. Zero regression risk (conditional behavior). Side benefit: any future component using `backgroundColor` + `borderStyle` gets solid borders for free.
+- `COLORTERM` env var unset by default in WSL terminals — chalk downgraded RGB to 256-color, snapping every dark-with-tint color to gray. Fixed in `bin/council` so the whole onyx-orange theme renders in actual truecolor now, not just session view.
+
+**Effort**: Phase A budget was 3h; actual ~5h after color-debug iteration.
+
+## 12. Phase B status — shipped (MVP)
+
+Replaces the static mock data with live event-driven state from the council / debate orchestrators. Running `/council` or `/discover` now causes the REPL to swap to the session view.
+
+**Files created**:
+
+| File | Role |
+|------|------|
+| `src/coordinator/council/sessionBus.ts` | Module-level event bus — `emit()` / `subscribe()` / `clearAllListeners()` |
+| `src/hooks/useSessionState.ts` | React hook — subscribes to bus, reduces events into `SessionState`, returns null when no session |
+
+**Files modified**:
+
+| File | Change |
+|------|--------|
+| `src/coordinator/council/councilSpawn.ts` | `runCouncilFromToolContext` wraps with try/finally and emits `session-start` / `session-end`. `buildCouncilAdapters` wraps each spawn callback to emit `voice-state` (running → done/failed), `voice-output` (text on settle), and `stage-change` (proposal → synthesis → execution → review) |
+| `src/coordinator/council/debateSpawn.ts` | Same pattern for `/discover`: kind=`discover`, voices=`RESEARCH_ROLES`, stages map round 1→proposal, round 2→revision, synthesist→synthesis |
+| `src/screens/REPL.tsx` | `useSessionState` hook at the top; early-return `<CouncilSessionScreen>` when sessionState is non-null; falls through to regular REPL otherwise |
+
+**End-to-end flow**:
+
+1. User types `/council run "..."` → orchestrator fires
+2. `emit('session-start', voices)` → hook updates state → REPL swap
+3. As proposals spawn: `emit('voice-state', running)` → voice glows orange ●
+4. As proposals settle: `emit('voice-output', text)` + `emit('voice-state', done, headline)` → ✓ + headline + text in center pane
+5. Stage transitions: `emit('stage-change', stage)` → top bar updates
+6. Orchestrator returns → `finally { emit('session-end') }` → state → null → REPL falls through to regular chat
+7. Result diff/brief renders inline in regular chat via existing executor path
+
+**Verification done**: `bun run build` clean, 36/0 tests pass on debate orchestrator + ThemePicker. Live REPL smoke pending user confirmation.
+
+**Effort**: Phase B budget was 6h; actual ~3h thanks to the clean adapter-callback pattern already in the orchestrators.
+
+## 13. What's deferred to Phase C / D
+
+**Note (2026-06-07)**: Phase C scope was reframed mid-Phase-B based on user feedback — the session view becomes the *outermost layout always*, not just a session-mode replacement. See `PHASE_C_PLAN.md` for the dedicated plan including layout decisions (stacked-left voice panes, split center, cumulative idle status).
+
+Carried over from `§6` phase plan; explicitly not in Phase B MVP:
+
+- **Phase C — discover-specific polish**: discover voices wire through the same adapter pattern as council. Should "just work" but needs smoke against a real `/discover` run.
+- **Phase D — keybindings + polish**:
+  - `Esc` to background the session (state held; REPL falls through; `/council show` re-enters)
+  - `Tab` to cycle focused voice (currently auto-focuses the last-running voice)
+  - `Ctrl-P` palette / `Ctrl-B` sidebar toggle
+  - Per-voice colors via `vendorBadge.ts` (currently all use the single orange accent)
+  - Real chunk-by-chunk streaming via AgentTool's `onProgress` (currently text arrives in one shot on spawn settle)
+  - Synthesizer / Executor / Review stage content in the center pane (currently shows `[stage — content TBD in Phase B]` placeholder; the executor stage particularly needs a file-diff renderer)
+  - `SessionCommand` real input wiring (currently a static visual stub)
+- **Phase E — tests + ship**:
+  - Unit tests for `useSessionState` (subscribe/unsubscribe, reducer transitions)
+  - Snapshot tests for `CouncilSessionScreen` at three widths (140 / 100 / 70)
+  - Live smoke covering full council + full discover + cancel mid-stream

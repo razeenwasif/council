@@ -9,7 +9,7 @@ import { every } from 'src/utils/set.js';
 import { getIsRemoteMode } from '../bootstrap/state.js';
 import type { Command } from '../commands.js';
 import { BLACK_CIRCLE } from '../constants/figures.js';
-import { useTerminalSize } from '../hooks/useTerminalSize.js';
+import { useEffectiveTerminalSize } from '../hooks/useEffectiveTerminalSize.js';
 import type { ScrollBoxHandle } from '../ink/components/ScrollBox.js';
 import { useTerminalNotification } from '../ink/useTerminalNotification.js';
 import { Box, Text } from '../ink.js';
@@ -372,9 +372,13 @@ const MessagesImpl = ({
   cursorNavRef,
   renderRange
 }: Props): React.ReactNode => {
+  // Phase C: useEffectiveTerminalSize respects the chat-sub-pane width
+  // when wrapped in CouncilSession's ChatPane, otherwise falls through to
+  // real terminal columns. Without this, long lines overflow into the
+  // voice-output sub-pane during active sessions.
   const {
     columns
-  } = useTerminalSize();
+  } = useEffectiveTerminalSize();
   const toggleShowAllShortcut = useShortcutDisplay('transcript:toggleShowAll', 'Transcript', 'Ctrl+E');
   const normalizedMessages = useMemo(() => normalizeMessages(messages).filter(isNotEmptyMessage), [messages]);
 

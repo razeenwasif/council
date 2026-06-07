@@ -56,6 +56,27 @@ import {
   type ReviewVerdict,
   type SynthesizedPlan,
 } from './councilOrchestrator.js'
+import { emit as emitSessionEvent } from './sessionBus.js'
+
+/**
+ * Extract the headline from a council voice's structured output. Mirrors
+ * (lightly) the orchestrator's own headline parsing used in formatProposalArrival
+ * — we duplicate here because the orchestrator's helpers aren't exported.
+ * Falls back to first non-empty line if the `## Headline` block is absent.
+ */
+function quickHeadline(text: string): string {
+  if (!text) return ''
+  const m = text.match(/##\s*Headline\s*\n+\s*([^\n]+)/i)
+  if (m && m[1]) return m[1].trim().slice(0, 80)
+  // Fallback: first non-blank, non-header line.
+  for (const line of text.split('\n')) {
+    const t = line.trim()
+    if (!t) continue
+    if (t.startsWith('#')) continue
+    return t.slice(0, 80)
+  }
+  return ''
+}
 
 /** What the caller hands us for transcript injection. We use it to push
  *  synthetic `tool_use` assistant messages (one per spawn, grouped by a
@@ -188,6 +209,16 @@ export async function runCouncilFromToolContext(
     setMessages: opts.setMessages,
   })
 
+  // Phase B session-view wiring — emit session-start so the React UI swaps
+  // to CouncilSessionScreen, and session-end on return so it swaps back.
+  // Voice-state events come from the per-spawn wrappers in buildCouncilAdapters.
+  emitSessionEvent({
+    type: 'session-start',
+    kind: 'council',
+    prompt: opts.userPrompt,
+    voices: COUNCIL_ROLES.map(role => ({ role, model: resolveRoleModel(role) })),
+  })
+
   // Snapshot global session cost before the council runs. AgentTool's
   // internal cost tracking flows into the global cost-tracker via
   // addToTotalSessionCost (in claude.ts), but AgentTool.call's return
@@ -200,24 +231,31 @@ export async function runCouncilFromToolContext(
   // require either AsyncLocalStorage threading or hooking each spawn's
   // addToTotalSessionCost — both larger scopes.
   const costBefore = getTotalCost()
-  const result = await runCouncil({
-    userPrompt: opts.userPrompt,
-    emitStatus: opts.emitStatus ?? (() => {}),
-    costCeilingUsd: opts.costCeilingUsd,
-    memberTimeoutMs: opts.memberTimeoutMs,
-    longTimeoutMs: opts.longTimeoutMs,
-    adapters,
-  })
-  const costAfter = getTotalCost()
-  const deltaCost = Math.max(0, costAfter - costBefore)
-  return {
-    ...result,
-    // Override only if the orchestrator's per-spawn tally is 0 (the
-    // deterministic-path case). When per-spawn cost IS populated (e.g.
-    // a future adapter that surfaces it), trust that over the global
-    // delta since it's attributable.
-    totalCostUsd:
-      result.totalCostUsd > 0 ? result.totalCostUsd : deltaCost,
+  try {
+    const result = await runCouncil({
+      userPrompt: opts.userPrompt,
+      emitStatus: opts.emitStatus ?? (() => {}),
+      costCeilingUsd: opts.costCeilingUsd,
+      memberTimeoutMs: opts.memberTimeoutMs,
+      longTimeoutMs: opts.longTimeoutMs,
+      adapters,
+    })
+    const costAfter = getTotalCost()
+    const deltaCost = Math.max(0, costAfter - costBefore)
+    return {
+      ...result,
+      // Override only if the orchestrator's per-spawn tally is 0 (the
+      // deterministic-path case). When per-spawn cost IS populated (e.g.
+      // a future adapter that surfaces it), trust that over the global
+      // delta since it's attributable.
+      totalCostUsd:
+        result.totalCostUsd > 0 ? result.totalCostUsd : deltaCost,
+    }
+  } finally {
+    // Session-end fires whether the council succeeded, failed, or was
+    // cancelled. Without finally, an exception leaves the React UI stuck
+    // in CouncilSessionScreen with no way back to the chat layout.
+    emitSessionEvent({ type: 'session-end' })
   }
 }
 
@@ -242,20 +280,50 @@ export interface BuildCouncilAdaptersInputs {
 export function buildCouncilAdapters(
   inputs: BuildCouncilAdaptersInputs,
 ): CouncilAdapters {
-  return {
-    spawnProposal: async ({ role, userPrompt, toolUseId, signal }) =>
-      proposalFromAgentTool({
-        role,
-        userPrompt,
-        toolUseId,
-        signal,
-        toolUseContext: inputs.toolUseContext,
-        canUseTool: inputs.canUseTool,
-        setMessages: inputs.setMessages,
-      }),
+  // Track whether we've already announced a stage transition; the
+  // synthesizer-spawn lambda fires once per run, so the first call is the
+  // canonical transition point. Same idea for executor + review.
+  let synthesisAnnounced = false
+  let executionAnnounced = false
+  let reviewAnnounced = false
 
-    spawnSynthesizer: async ({ userPrompt, proposals, toolUseId, signal }) =>
-      synthesizerFromAgentTool({
+  return {
+    spawnProposal: async ({ role, userPrompt, toolUseId, signal }) => {
+      emitSessionEvent({ type: 'voice-state', role, status: 'running' })
+      try {
+        const p = await proposalFromAgentTool({
+          role,
+          userPrompt,
+          toolUseId,
+          signal,
+          toolUseContext: inputs.toolUseContext,
+          canUseTool: inputs.canUseTool,
+          setMessages: inputs.setMessages,
+        })
+        // Pipe full text into the session view as a single chunk — the
+        // center pane renders it when this voice is focused. Streaming
+        // updates (true chunk-by-chunk) are a Phase D enhancement; for
+        // MVP, the text arrives in one shot when the spawn settles.
+        emitSessionEvent({ type: 'voice-output', role, chunk: p.text })
+        emitSessionEvent({
+          type: 'voice-state',
+          role,
+          status: 'done',
+          headline: quickHeadline(p.text),
+        })
+        return p
+      } catch (err) {
+        emitSessionEvent({ type: 'voice-state', role, status: 'failed' })
+        throw err
+      }
+    },
+
+    spawnSynthesizer: async ({ userPrompt, proposals, toolUseId, signal }) => {
+      if (!synthesisAnnounced) {
+        synthesisAnnounced = true
+        emitSessionEvent({ type: 'stage-change', stage: 'synthesis' })
+      }
+      return synthesizerFromAgentTool({
         userPrompt,
         proposals,
         toolUseId,
@@ -263,10 +331,15 @@ export function buildCouncilAdapters(
         toolUseContext: inputs.toolUseContext,
         canUseTool: inputs.canUseTool,
         setMessages: inputs.setMessages,
-      }),
+      })
+    },
 
-    spawnExecutor: async ({ userPrompt, plan, revisionContext, toolUseId, signal }) =>
-      executorFromAgentTool({
+    spawnExecutor: async ({ userPrompt, plan, revisionContext, toolUseId, signal }) => {
+      if (!executionAnnounced) {
+        executionAnnounced = true
+        emitSessionEvent({ type: 'stage-change', stage: 'execution' })
+      }
+      return executorFromAgentTool({
         userPrompt,
         plan,
         revisionContext,
@@ -275,20 +348,34 @@ export function buildCouncilAdapters(
         toolUseContext: inputs.toolUseContext,
         canUseTool: inputs.canUseTool,
         setMessages: inputs.setMessages,
-      }),
+      })
+    },
 
-    spawnReview: async ({ role, userPrompt, proposal, execution, toolUseId, signal }) =>
-      reviewFromAgentTool({
-        role,
-        userPrompt,
-        proposal,
-        execution,
-        toolUseId,
-        signal,
-        toolUseContext: inputs.toolUseContext,
-        canUseTool: inputs.canUseTool,
-        setMessages: inputs.setMessages,
-      }),
+    spawnReview: async ({ role, userPrompt, proposal, execution, toolUseId, signal }) => {
+      if (!reviewAnnounced) {
+        reviewAnnounced = true
+        emitSessionEvent({ type: 'stage-change', stage: 'review' })
+      }
+      emitSessionEvent({ type: 'voice-state', role, status: 'running' })
+      try {
+        const r = await reviewFromAgentTool({
+          role,
+          userPrompt,
+          proposal,
+          execution,
+          toolUseId,
+          signal,
+          toolUseContext: inputs.toolUseContext,
+          canUseTool: inputs.canUseTool,
+          setMessages: inputs.setMessages,
+        })
+        emitSessionEvent({ type: 'voice-state', role, status: 'done' })
+        return r
+      } catch (err) {
+        emitSessionEvent({ type: 'voice-state', role, status: 'failed' })
+        throw err
+      }
+    },
 
     // Panel hooks — only wired when caller supplied setMessages.
     ...(inputs.setMessages

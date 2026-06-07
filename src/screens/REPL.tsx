@@ -21,7 +21,8 @@ import { Box, Text, useStdin, useTheme, useTerminalFocus, useTerminalTitle, useT
 import type { TabStatusKind } from '../ink/hooks/use-tab-status.js';
 import { CostThresholdDialog } from '../components/CostThresholdDialog.js';
 import { IdleReturnDialog } from '../components/IdleReturnDialog.js';
-import { StatusBar } from '../components/StatusBar.js';
+import { CouncilSessionScreen } from '../components/CouncilSession/index.js';
+import { useSessionState } from '../hooks/useSessionState.js';
 import * as React from 'react';
 import { useEffect, useMemo, useRef, useState, useCallback, useDeferredValue, useLayoutEffect, type RefObject } from 'react';
 import { useNotifications } from '../context/notifications.js';
@@ -4346,7 +4347,14 @@ export function REPL({
   // wrapping). Clearing searchQuery triggers VML's setSearchQuery('')
   // which clears positionsCache + setPositions(null). Bar closes.
   // User hits / again → fresh everything.
-  const transcriptCols = useTerminalSize().columns;
+  const terminalSize = useTerminalSize();
+  const transcriptCols = terminalSize.columns;
+  const transcriptRows = terminalSize.rows;
+  // Phase B council-mode session view — subscribes to the council/debate
+  // event bus. Returns null when no session is active (the common case);
+  // returns a SessionState when /council or /discover is running, in which
+  // case we early-return the session screen instead of the regular REPL.
+  const sessionState = useSessionState();
   const prevColsRef = React.useRef(transcriptCols);
   React.useEffect(() => {
     if (prevColsRef.current !== transcriptCols) {
@@ -4659,7 +4667,8 @@ export function REPL({
     {feature('MESSAGE_ACTIONS') && isFullscreenEnvEnabled() && !disableMessageActions ? <MessageActionsKeybindings handlers={messageActionHandlers} isActive={cursor !== null} /> : null}
     <CancelRequestHandler {...cancelRequestProps} />
     <MCPConnectionManager key={remountKey} dynamicMcpConfig={dynamicMcpConfig} isStrictMcpConfig={strictMcpConfig}>
-      <FullscreenLayout scrollRef={scrollRef} overlay={toolPermissionOverlay} bottomFloat={isBuddyEnabled() && companionVisible && !companionNarrow ? <CompanionFloatingBubble /> : undefined} modal={centeredModal} modalScrollRef={modalScrollRef} dividerYRef={dividerYRef} hidePill={!!viewedAgentTask} hideSticky={!!viewedTeammateTask} newMessageCount={unseenDivider?.count ?? 0} onPillClick={() => {
+      <CouncilSessionScreen session={sessionState} terminalColumns={transcriptCols} terminalRows={transcriptRows} overlayContent={centeredModal} modalScrollRef={modalScrollRef} chatContent={
+      <FullscreenLayout scrollRef={scrollRef} overlay={toolPermissionOverlay} bottomFloat={isBuddyEnabled() && companionVisible && !companionNarrow ? <CompanionFloatingBubble /> : undefined} modal={null} modalScrollRef={modalScrollRef} dividerYRef={dividerYRef} hidePill={!!viewedAgentTask} hideSticky={!!viewedTeammateTask} newMessageCount={unseenDivider?.count ?? 0} onPillClick={() => {
         setCursor(null);
         jumpToNew(scrollRef.current);
       }} scrollable={<>
@@ -4684,10 +4693,14 @@ export function REPL({
         {showSpinner && <SpinnerWithVerb mode={streamMode} spinnerTip={spinnerTip} responseLengthRef={responseLengthRef} apiMetricsRef={apiMetricsRef} overrideMessage={spinnerMessage} spinnerSuffix={stopHookSpinnerSuffix} verbose={verbose} loadingStartTimeRef={loadingStartTimeRef} totalPausedMsRef={totalPausedMsRef} pauseStartTimeRef={pauseStartTimeRef} overrideColor={spinnerColor} overrideShimmerColor={spinnerShimmerColor} hasActiveTools={inProgressToolUseIDs.size > 0} leaderIsIdle={!isLoading} />}
         {!showSpinner && !isLoading && !userInputOnProcessing && !hasRunningTeammates && isBriefOnly && !viewedAgentTask && <BriefIdleStatus />}
         {isFullscreenEnvEnabled() && <PromptInputQueuedCommands />}
-      </>} bottom={<Box flexDirection={isBuddyEnabled() && companionNarrow ? 'column' : 'row'} width="100%" alignItems={isBuddyEnabled() && companionNarrow ? undefined : 'flex-end'}>
+      </>} bottom={null} />
+      } promptContent={<Box flexDirection={isBuddyEnabled() && companionNarrow ? 'column' : 'row'} width="100%" alignItems={isBuddyEnabled() && companionNarrow ? undefined : 'flex-end'}>
         {isBuddyEnabled() && companionNarrow && isFullscreenEnvEnabled() && companionVisible ? <CompanionSprite /> : null}
         <Box flexDirection="column" flexGrow={1}>
-          <StatusBar isLoading={isLoading} loadingStartMs={loadingStartTimeRef.current} pausedMs={totalPausedMsRef.current} pauseStartMs={pauseStartTimeRef.current} runningAgentCount={inProgressToolUseIDs.size} />
+          {/* StatusBar (Phase 3a) removed in C.3.2 — its cost / elapsed /
+              agent-count info is now shown in the SessionStatus right
+              pane, which is always visible. The bar was visual redundancy
+              + contributing to the command pane's height. */}
           {permissionStickyFooter}
           {/* Immediate local-jsx commands (/btw, /sandbox, /assistant,
                   /issue) render here, NOT inside scrollable. They stay mounted
@@ -5094,6 +5107,15 @@ export function REPL({
       </Box>} />
     </MCPConnectionManager>
   </KeybindingSetup>;
+  // Phase C — CouncilSessionScreen is the outermost layout always
+  // (post-MCPConnectionManager). The existing scrollable content flows
+  // into its `chatContent` slot; the existing bottom flows into
+  // `promptContent`. When sessionState is non-null, the voice-output
+  // sub-pane appears next to chat and left voice panes light up live.
+  // When sessionState is null (idle), only the chat sub-pane shows.
+  // The Phase B early-return for sessionState was removed — the screen
+  // handles both branches internally via the `session` prop being
+  // nullable.
   if (isFullscreenEnvEnabled()) {
     return <AlternateScreen mouseTracking={isMouseTrackingEnabled()}>
       {mainReturn}

@@ -62,6 +62,14 @@ Authoritative references for different needs:
 | Runtime code (the Council system) | `src/` (TypeScript, ~2500 files) |
 | Debate code specifically | `src/coordinator/council/`, `src/commands/discover/` |
 | Built-in agent definitions | `src/tools/AgentTool/built-in/` |
+| TUI palette/border/spinner work (Phases 1–3a) | `TUI_REDESIGN.md` (§14 documents Phase 3b revert) |
+| Council-mode session view design + status | `COUNCIL_MODE_REDESIGN.md` (§11 Phase A, §12 Phase B) |
+| Phase C design (session view as default layout) | `PHASE_C_PLAN.md` |
+| Session view components | `src/components/CouncilSession/`, `scripts/preview-council-mode.tsx` |
+| Session bus + state hook | `src/coordinator/council/sessionBus.ts`, `src/hooks/useSessionState.ts` |
+| Effective terminal-size shim (Phase C primitive) | `src/hooks/useEffectiveTerminalSize.ts` |
+| Chat sub-pane (wraps slot in EffectiveTerminalSizeProvider) | `src/components/CouncilSession/ChatPane.tsx` |
+| Self-improving council telemetry plan | `TELEMETRY_PLAN.md` |
 
 ---
 
@@ -138,17 +146,31 @@ The paper repo exists because Overleaf's GitHub import counts files across the e
 
 7. **Don't push to `quant-specialist-paper:main` directly from outside the sync target.** Use `make sync-overleaf` from `Council:paper/`. Manual edits to the standalone repo will silently drift from `Council:paper/`.
 
+8. **Don't add `useTerminalSize()` calls inside `src/components/CouncilSession/*`.** Those components compute their layout from an explicit `availableColumns` prop passed by `CouncilSessionScreen`. Calling `useTerminalSize` inside any descendant breaks the multi-pane layout — that's the bug that killed Phase 3b of the original `TUI_REDESIGN`. See `COUNCIL_MODE_REDESIGN.md` §5 "Width handling" for the load-bearing reason.
+
+   **Choosing between `useTerminalSize` and `useEffectiveTerminalSize`** (Phase C addition):
+   - `useTerminalSize` → real terminal size. Use it at the screen root or anything painting backgrounds across the whole viewport.
+   - `useEffectiveTerminalSize` (in `src/hooks/useEffectiveTerminalSize.ts`) → respects an `EffectiveTerminalSizeProvider` ancestor when present, falls through to real terminal otherwise. Use it in components that may end up inside a flex-allocated sub-pane and need to wrap to that pane's width (`Messages`, `Markdown`, anything with column-clamped layout).
+   - Default for new chat-tree components: `useEffectiveTerminalSize`. The performance cost of the indirection is negligible; the cost of getting it wrong is the Phase 3b wrap bug.
+
+9. **Don't emit on the session bus from anywhere except `councilSpawn.ts` or `debateSpawn.ts`.** The bus has one canonical lifecycle: `session-start` → events → `session-end`. Random emissions from elsewhere will desync the React state with reality. If you need a new event type, add it to `sessionBus.ts`'s `SessionEvent` union and route it through the existing emit sites.
+
+10. **Don't disable the `COLORTERM=truecolor` default in `bin/council`.** Without it, chalk downgrades RGB to 256-color, and the entire onyx-orange theme renders as flat gray. The user spent debug time finding this — don't regress it.
+
+11. **Don't disable the `CLAUDE_CODE_NO_FLICKER=1` default in `bin/council`.** This is what makes Council take over the terminal like nvim / yazi / less (alt-screen mode). Without it, Council renders inline in the existing shell scrollback — clutters history, breaks the workspace mental model the user explicitly designed for. Auto-disabled under tmux -CC regardless (alt-screen + mouse tracking corrupts terminal state there); see `src/utils/fullscreen.ts` for the full guard logic.
+
 ---
 
 ## Frequent context-switches
 
-This repo serves three workstreams in parallel; be careful which one you're operating in:
+This repo serves four workstreams in parallel; be careful which one you're operating in:
 
 1. **Engineering the Council system itself** (TypeScript in `src/`) — changes go through tests, often touch the AgentTool / coordinator integration. Read the relevant file's docstring before editing.
-2. **Documenting the research project** (Markdown at root + LaTeX in `paper/`) — the planning suite. Lower stakes, but cross-references between docs must stay coherent.
-3. **Running experiments** (planned, not yet started — see `WEEKLY_PLAN.md`) — once Phase 0 begins, training scripts, eval harness, and ML tooling will live in a separate location (likely `~/Research/quant-specialist/`), not inside this repo.
+2. **TUI / council-mode redesign** (`src/components/CouncilSession/`, `src/coordinator/council/sessionBus.ts`, `src/hooks/useSessionState.ts`, `src/ink/render-border.ts`, `bin/council`) — Onyx-inspired session view for `/council` and `/discover`. Phase A + B shipped; Phase C/D/E pending. See `COUNCIL_MODE_REDESIGN.md` for the full plan.
+3. **Documenting the research project** (Markdown at root + LaTeX in `paper/`) — the planning suite. Lower stakes, but cross-references between docs must stay coherent.
+4. **Running experiments** (planned, not yet started — see `WEEKLY_PLAN.md`) — once Phase 0 begins, training scripts, eval harness, and ML tooling will live in a separate location (likely `~/Research/quant-specialist/`), not inside this repo.
 
-When the user says "the project" without qualification, they usually mean #2 + #3 (the research). When they say "the codebase" or "Council," they mean #1.
+When the user says "the project" without qualification, they usually mean #3 + #4 (the research). When they say "the codebase" or "Council," they mean #1. When they say "the redesign" or "council mode," they mean #2.
 
 ---
 

@@ -1,7 +1,7 @@
 import type { Token, Tokens } from 'marked';
 import React from 'react';
 import stripAnsi from 'strip-ansi';
-import { useTerminalSize } from '../hooks/useTerminalSize.js';
+import { useEffectiveTerminalSize } from '../hooks/useEffectiveTerminalSize.js';
 import { stringWidth } from '../ink/stringWidth.js';
 import { wrapAnsi } from '../ink/wrapAnsi.js';
 import { Ansi, useTheme } from '../ink.js';
@@ -75,9 +75,11 @@ export function MarkdownTable({
   forceWidth
 }: Props): React.ReactNode {
   const [theme] = useTheme();
+  // Phase C: use effective size so table column widths respect the
+  // chat sub-pane allocation rather than full terminal width.
   const {
     columns: actualTerminalWidth
-  } = useTerminalSize();
+  } = useEffectiveTerminalSize();
   const terminalWidth = forceWidth ?? actualTerminalWidth;
 
   // Format cell content to ANSI string

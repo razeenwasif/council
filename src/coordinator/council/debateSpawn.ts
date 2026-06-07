@@ -37,13 +37,29 @@ import {
   parseLineage,
   runDebate,
 } from './debateOrchestrator.js'
-import type {
-  DebateAdapters,
-  DebateInputs,
-  DebateResult,
-  Position,
-  ResearchRole,
+import {
+  RESEARCH_ROLES,
+  type DebateAdapters,
+  type DebateInputs,
+  type DebateResult,
+  type Position,
+  type ResearchRole,
 } from './debate.js'
+import { emit as emitSessionEvent } from './sessionBus.js'
+
+/** Lightweight headline extractor mirroring councilSpawn.quickHeadline. */
+function quickHeadline(text: string): string {
+  if (!text) return ''
+  const m = text.match(/##\s*Headline\s*\n+\s*([^\n]+)/i)
+  if (m && m[1]) return m[1].trim().slice(0, 80)
+  for (const line of text.split('\n')) {
+    const t = line.trim()
+    if (!t) continue
+    if (t.startsWith('#')) continue
+    return t.slice(0, 80)
+  }
+  return ''
+}
 import {
   ROUND_2_DIRECTIVE,
   ROUND_2_OUTPUT_FORMAT_EXPORTED,
@@ -83,28 +99,42 @@ export async function runDebateFromToolContext(
     setMessages: opts.setMessages,
   })
 
-  const costBefore = getTotalCost()
-  const result = await runDebate({
-    question: opts.question,
-    contextFiles: opts.contextFiles,
-    outputPath: opts.outputPath,
-    emitStatus: opts.emitStatus ?? (() => {}),
-    costCeilingUsd: opts.costCeilingUsd,
-    // Wire the live cost-tracker so the in-orchestrator ledger can
-    // enforce the ceiling mid-run. Without this, the per-spawn costUsd
-    // (always 0 in the deterministic AgentTool path) would never trip
-    // the ceiling, and a runaway debate could quietly bill multiples
-    // of the configured cap. See CostLedger docs in debateOrchestrator.ts.
-    getCurrentCost: getTotalCost,
-    memberTimeoutMs: opts.memberTimeoutMs,
-    synthesistTimeoutMs: opts.synthesistTimeoutMs,
-    adapters,
+  // Phase B session-view wiring (mirrors councilSpawn). The session view
+  // treats discover identically to council in terms of state shape; only
+  // the kind tag differs.
+  emitSessionEvent({
+    type: 'session-start',
+    kind: 'discover',
+    prompt: opts.question,
+    voices: RESEARCH_ROLES.map(role => ({ role, model: resolveRoleModel(role) })),
   })
-  const costAfter = getTotalCost()
-  const deltaCost = Math.max(0, costAfter - costBefore)
-  return {
-    ...result,
-    totalCostUsd: result.totalCostUsd > 0 ? result.totalCostUsd : deltaCost,
+
+  const costBefore = getTotalCost()
+  try {
+    const result = await runDebate({
+      question: opts.question,
+      contextFiles: opts.contextFiles,
+      outputPath: opts.outputPath,
+      emitStatus: opts.emitStatus ?? (() => {}),
+      costCeilingUsd: opts.costCeilingUsd,
+      // Wire the live cost-tracker so the in-orchestrator ledger can
+      // enforce the ceiling mid-run. Without this, the per-spawn costUsd
+      // (always 0 in the deterministic AgentTool path) would never trip
+      // the ceiling, and a runaway debate could quietly bill multiples
+      // of the configured cap. See CostLedger docs in debateOrchestrator.ts.
+      getCurrentCost: getTotalCost,
+      memberTimeoutMs: opts.memberTimeoutMs,
+      synthesistTimeoutMs: opts.synthesistTimeoutMs,
+      adapters,
+    })
+    const costAfter = getTotalCost()
+    const deltaCost = Math.max(0, costAfter - costBefore)
+    return {
+      ...result,
+      totalCostUsd: result.totalCostUsd > 0 ? result.totalCostUsd : deltaCost,
+    }
+  } finally {
+    emitSessionEvent({ type: 'session-end' })
   }
 }
 
@@ -121,6 +151,11 @@ export interface BuildDebateAdaptersInputs {
 export function buildDebateAdapters(
   inputs: BuildDebateAdaptersInputs,
 ): DebateAdapters {
+  // Whether we've announced the round-2 / synthesist stage transition.
+  // Stage names: round 1 = 'proposal', round 2 = 'revision', synthesist = 'synthesis'.
+  let round2Announced = false
+  let synthesisAnnounced = false
+
   return {
     spawnResearcher: async ({
       role,
@@ -130,19 +165,38 @@ export function buildDebateAdapters(
       priorPositions,
       toolUseId,
       signal,
-    }) =>
-      researcherFromAgentTool({
-        role,
-        roundNumber,
-        question,
-        contextFiles,
-        priorPositions,
-        toolUseId,
-        signal,
-        toolUseContext: inputs.toolUseContext,
-        canUseTool: inputs.canUseTool,
-        setMessages: inputs.setMessages,
-      }),
+    }) => {
+      if (roundNumber === 2 && !round2Announced) {
+        round2Announced = true
+        emitSessionEvent({ type: 'stage-change', stage: 'revision' })
+      }
+      emitSessionEvent({ type: 'voice-state', role, status: 'running' })
+      try {
+        const p = await researcherFromAgentTool({
+          role,
+          roundNumber,
+          question,
+          contextFiles,
+          priorPositions,
+          toolUseId,
+          signal,
+          toolUseContext: inputs.toolUseContext,
+          canUseTool: inputs.canUseTool,
+          setMessages: inputs.setMessages,
+        })
+        emitSessionEvent({ type: 'voice-output', role, chunk: p.text })
+        emitSessionEvent({
+          type: 'voice-state',
+          role,
+          status: 'done',
+          headline: quickHeadline(p.text),
+        })
+        return p
+      } catch (err) {
+        emitSessionEvent({ type: 'voice-state', role, status: 'failed' })
+        throw err
+      }
+    },
 
     spawnSynthesist: async ({
       question,
@@ -150,8 +204,12 @@ export function buildDebateAdapters(
       allPositions,
       toolUseId,
       signal,
-    }) =>
-      synthesistFromAgentTool({
+    }) => {
+      if (!synthesisAnnounced) {
+        synthesisAnnounced = true
+        emitSessionEvent({ type: 'stage-change', stage: 'synthesis' })
+      }
+      return synthesistFromAgentTool({
         question,
         contextFiles,
         allPositions,
@@ -160,7 +218,8 @@ export function buildDebateAdapters(
         toolUseContext: inputs.toolUseContext,
         canUseTool: inputs.canUseTool,
         setMessages: inputs.setMessages,
-      }),
+      })
+    },
 
     ...(inputs.setMessages ? buildDebatePanelHooks(inputs.setMessages) : {}),
   }

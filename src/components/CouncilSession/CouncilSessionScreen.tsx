@@ -368,7 +368,7 @@ export function CouncilSessionScreen({
           // the flex-allocated width.
           promptContent
         ) : (
-          <SessionCommand value={commandValue} availableColumns={paneInner(interiorWidth)} />
+          <SessionCommand value={commandValue} availableColumns={paneInner(centerOuter)} />
         )}
       </Box>
       <HelpBar availableColumns={interiorWidth} />

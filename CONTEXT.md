@@ -157,6 +157,8 @@ The paper repo exists because Overleaf's GitHub import counts files across the e
 
 10. **Don't disable the `COLORTERM=truecolor` default in `bin/council`.** Without it, chalk downgrades RGB to 256-color, and the entire onyx-orange theme renders as flat gray. The user spent debug time finding this — don't regress it.
 
+11. **Don't disable the `CLAUDE_CODE_NO_FLICKER=1` default in `bin/council`.** This is what makes Council take over the terminal like nvim / yazi / less (alt-screen mode). Without it, Council renders inline in the existing shell scrollback — clutters history, breaks the workspace mental model the user explicitly designed for. Auto-disabled under tmux -CC regardless (alt-screen + mouse tracking corrupts terminal state there); see `src/utils/fullscreen.ts` for the full guard logic.
+
 ---
 
 ## Frequent context-switches

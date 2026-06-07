@@ -30,6 +30,14 @@ if (!process.env.COUNCIL_OFF) {
 // overridden (e.g. COLORTERM=8bit for old terminals).
 process.env.COLORTERM = process.env.COLORTERM ?? 'truecolor'
 
+// Default to alt-screen "flicker-free" mode — Council takes over the
+// terminal like nvim/yazi/less, hiding shell scrollback while running
+// and restoring it on exit. Without this, Council renders inline in
+// the existing shell buffer.
+// Set CLAUDE_CODE_NO_FLICKER=0 to revert to inline rendering.
+// Auto-disabled under tmux -CC regardless (see src/utils/fullscreen.ts).
+process.env.CLAUDE_CODE_NO_FLICKER = process.env.CLAUDE_CODE_NO_FLICKER ?? '1'
+
 // Force synchronous agent dispatch — required by the deterministic
 // orchestrator (default as of v1.x). Coordinator mode (just set above)
 // would otherwise route every AgentTool.call into the background-task

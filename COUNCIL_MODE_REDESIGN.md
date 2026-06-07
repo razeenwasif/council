@@ -447,7 +447,9 @@ Phasing:
 |------|-------|--------|
 | **1 — Layout scaffold** | Center splits into council pane (chat + the single existing `PromptInput`) and research pane (placeholder). Bottom command pane removed at idle, preserved during active session for compatibility. Visual change only. | ✓ shipped |
 | **2 — Per-pane drafts + `Alt+1` / `Alt+2` focus** | Single mounted `PromptInput` (architectural pragmatism — splitting REPL's dense `promptContent` JSX into two real instances was a major refactor with marginal user-visible benefit). REPL holds two drafts; `Alt+1`/`Alt+2` swap which draft is live and where the input renders. Focused pane gets the accent border; unfocused pane shows a ghost preview of its draft. | ✓ shipped |
-| **3 — Per-pane scrollbacks + orchestrator routing** | Each pane's submit routes to its orchestrator (council vs discover). Independent message threads. Active session split-center (chat + voice-output) folds into the relevant pane. | pending |
+| **3a — Pane-aware submit routing** | Plain-text submits in the council pane auto-prepend `/council `; research pane auto-prepends `/discover `. Explicit slash commands bypass. | ✓ shipped |
+| **3b — Voice-output folds into matching pane** | Active session's `StagePane` content renders inside the pane whose orchestrator is running (instead of splitting the entire center). Both idle and active states use the same dual `WorkspacePane` layout. Bottom command pane removed entirely. | ✓ shipped |
+| **3c — Per-pane scrollbacks** | Each pane filters to its own message origin. Switching panes shows only that pane's history. Requires tagging messages with origin pane on creation + filtering at render. | pending |
 | **4 — Combined status + "research" label** | Status sums both panes. Surface "research" instead of "discover" in the UI. | pending |
 
 **Phase 1 implementation notes**:
@@ -461,7 +463,21 @@ Phasing:
 - `REPL.tsx`: added `focusedPane: 'council' | 'research'` and `unfocusedDraft: string` state. Added a `useInput` hook that handles `Alt+1` / `Alt+2`, calls `switchPane(target)` which saves the live `inputValue` into `unfocusedDraft` and loads the previous `unfocusedDraft` into `inputValue`. Drafts persist per pane across focus switches. `event.stopImmediatePropagation()` keeps the alt-keypress from also reaching `PromptInput`.
 - `CouncilSessionScreen.tsx`: accepts new props `focusedPane` and `unfocusedDraft`. Idle wide-mode center now renders two `<WorkspacePane>` components. The focused pane gets the accent-orange border, the chat scrollback, and the live `promptContent` slot. The unfocused pane gets a gray border, an empty middle area, and a ghost preview of its draft text (italic dim) — or an "(empty draft — alt-X to focus and type)" placeholder when the draft is empty.
 - Why single `PromptInput`, not two: the REPL's `promptContent` slot is a dense ~120-line JSX tree containing `PromptInput`, permission dialogs, focused input dialogs, queued commands, the companion sprite, etc. Splitting it into two parallel instances would require duplicating that whole subtree and threading per-pane refs, abort controllers, and modal state. The single-mounted approach gives functionally identical UX (drafts preserved, both panes accept input by focusing first) at a fraction of the refactor cost.
-- Known gap (Phase 3 work): chat scrollback is still shared — only the focused pane renders it. When the user switches to research and back to council, the same scrollback reappears. Per-pane message threads + orchestrator routing in Phase 3 will fix this and also fold the active-session voice-output split into the focused pane.
+- Known gap (Phase 3c work): chat scrollback is still shared — only the focused pane renders it. When the user switches to research and back to council, the same scrollback reappears. Per-pane message threads + orchestrator routing in Phase 3 will fix this and also fold the active-session voice-output split into the focused pane.
+
+**Phase 3a implementation notes** (this commit):
+- `REPL.tsx` `onSubmit`: at the top of the callback (before any other dispatch), if the input is non-empty, doesn't start with `/`, and isn't a speculation-accept, reassigns `input` to `${slashCommand} ${input.trim()}` where `slashCommand` is `/council run` (note the `run` subcommand — `/council` alone parses the first word as a subcommand) or `/discover` based on `focusedPane`. The rest of `onSubmit` is untouched — the existing `input.trim().startsWith('/')` branch (the standard slash-command dispatch) catches the routed value naturally.
+- Gated on `isFullscreenEnvEnabled()` so non-fullscreen REPL behavior is unchanged.
+- `focusedPane` added to the `onSubmit` useCallback dependency array.
+- Power users can still invoke any command (`/help`, `/sandbox`, `/theme`, etc.) by typing it explicitly — only plain text gets auto-routed.
+
+**Phase 3b implementation notes** (this commit):
+- `CouncilSessionScreen.tsx`: removed the `isSessionActive ? splitCenterLayout : dualPaneLayout` branch. Both states now render the same `WorkspacePane` dual-pane layout.
+- New computed value `sessionPane: 'council' | 'research' | null` derived from `session?.kind` (`'council'` → `'council'`, `'discover'` → `'research'`, `null` → `null`).
+- `WorkspacePane` extended with two new props: `voiceOutputContent: ReactNode | undefined` (the `StagePane`) and `voiceOutputTitle: string | undefined`. The pane matching `sessionPane` gets both props populated; the other gets `undefined`.
+- Internal `WorkspacePane` layout matrix updated to handle the four states (focused × hasVoiceOutput). When voice-output is present and the pane is unfocused, it takes the full middle area (no chat or placeholder above it).
+- Bottom command pane removed entirely — PromptInput always lives inside the focused pane.
+- Result: a council session running while the user is focused on research shows the voice-output progress in the council pane WITHOUT a PromptInput there; research keeps a writable PromptInput. The user can Alt+1 to bring up chat + PromptInput in council (the active session continues regardless).
 
 ## 13. What's deferred to Phase C / D
 

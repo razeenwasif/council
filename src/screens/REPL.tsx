@@ -3240,6 +3240,25 @@ export function REPL({
   }, options?: {
     fromKeybinding?: boolean;
   }) => {
+    // Phase 3a dual-pane: pane-aware submit routing. Plain-text
+    // submissions in the council pane auto-prepend `/council run ` (the
+    // `run` subcommand dispatches the deterministic orchestrator on the
+    // given prompt). Research pane auto-prepends `/discover ` (which
+    // takes the prompt directly via parseDiscoverArgs). Explicit slash
+    // commands (input starting with `/`) bypass this so power users can
+    // still invoke any command (/help, /theme, /sandbox, etc.)
+    // regardless of focus. Speculation-accept path is left alone — the
+    // speculation pre-flight already chose what to dispatch.
+    if (
+      isFullscreenEnvEnabled() &&
+      !speculationAccept &&
+      input.trim().length > 0 &&
+      !input.trim().startsWith('/')
+    ) {
+      const slashCommand = focusedPane === 'council' ? '/council run' : '/discover';
+      input = `${slashCommand} ${input.trim()}`;
+    }
+
     // Re-pin scroll to bottom on submit so the user always sees the new
     // exchange (matches OpenCode's auto-scroll behavior).
     repinScroll();
@@ -3671,7 +3690,7 @@ export function REPL({
     // messages array in downstream closures (PromptInput, handleAutoRunIssue).
     // Heap analysis showed ~9 REPL scopes and ~15 messages array versions
     // accumulating after #20174/#20175, all traced to this dep.
-    mainLoopModel, pastedContents, ideSelection, setUserInputOnProcessing, setAbortController, addNotification, onQuery, stashedPrompt, setStashedPrompt, setAppState, onBeforeQuery, canUseTool, remoteSession, setMessages, awaitPendingHooks, repinScroll]);
+    mainLoopModel, pastedContents, ideSelection, setUserInputOnProcessing, setAbortController, addNotification, onQuery, stashedPrompt, setStashedPrompt, setAppState, onBeforeQuery, canUseTool, remoteSession, setMessages, awaitPendingHooks, repinScroll, focusedPane]);
 
   // Callback for when user submits input while viewing a teammate's transcript
   const onAgentSubmit = useCallback(async (input: string, task: InProcessTeammateTaskState | LocalAgentTaskState, helpers: PromptInputHelpers) => {

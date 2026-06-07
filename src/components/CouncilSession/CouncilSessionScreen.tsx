@@ -174,22 +174,26 @@ export function CouncilSessionScreen({
   const runningVoices = session
     ? session.voices.filter(v => v.status === 'running').map(v => v.role)
     : []
-  // Phase C.2b: center is split into chat + voice-output sub-panes when
-  // a session is active. At idle (Phase D-post-smoke 2026-06-07): center
-  // splits into two workspace panes — council (left) hosts the live
-  // chat scrollback + PromptInput; research (right) is currently a
-  // placeholder, will get its own input + scrollback in Phase 2 of the
-  // dual-pane work.
+  // Phase 3b dual-pane (2026-06-07): both idle and active sessions
+  // use the same dual WorkspacePane center layout. The pane matching
+  // session.kind hosts the voice-output content; the other pane shows
+  // its idle workspace state. Bottom command pane is gone entirely —
+  // the PromptInput always lives inside the focused pane.
   const isSessionActive = session !== null
   const voiceOutputTitle = focusedVoice
     ? `current — ${focusedVoice.role} (${focusedVoice.model})`
     : 'current'
-  // Split math: outer widths of the two sub-panes (each includes its own
-  // round border). chat gets floor; voice-output gets the remainder.
-  const chatOuterActive = Math.floor(centerOuter / 2)
-  const voiceOutputOuter = centerOuter - chatOuterActive
-  // Idle dual-pane split: council pane (left) gets floor; research pane
-  // (right) gets the remainder.
+  // Map session kind → pane: council session → council pane;
+  // discover session → research pane (research is the UI label for
+  // the discover orchestrator per Phase 4 decision).
+  const sessionPane: 'council' | 'research' | null =
+    session?.kind === 'council'
+      ? 'council'
+      : session?.kind === 'discover'
+        ? 'research'
+        : null
+  // Dual-pane split: each pane gets ~half of the center. The voice-list
+  // and status panes always sit on the sides.
   const councilPaneOuter = Math.floor(centerOuter / 2)
   const researchPaneOuter = centerOuter - councilPaneOuter
 
@@ -257,69 +261,58 @@ export function CouncilSessionScreen({
               />
             </Box>
           </Box>
-          {/* Center: split into chat sub-pane + voice-output sub-pane
-              when a session is active; single chat pane spanning the
-              full center at idle. Chat sub-pane wraps its content with
-              EffectiveTerminalSizeProvider so word-wrap respects the
-              allocated columns. */}
-          {isSessionActive ? (
-            <Box flexDirection="row" flexGrow={1}>
-              <Box
-                width={chatOuterActive}
-                flexShrink={0}
-                borderStyle="round"
-                borderColor={ACCENT}
-                backgroundColor={BG}
-                flexDirection="column"
-                borderText={paneTitle('chat')}
-              >
-                <ChatPane
-                  availableColumns={chatOuterActive}
-                  chatContent={chatContent}
-                />
-              </Box>
-              <Box
-                width={voiceOutputOuter}
-                flexShrink={0}
-                borderStyle="round"
-                borderColor={ACCENT}
-                backgroundColor={BG}
-                flexDirection="column"
-                borderText={paneTitle(voiceOutputTitle)}
-              >
-                <StagePane
-                  stage={stage}
-                  focusedVoice={focusedVoice}
-                  availableColumns={paneInner(voiceOutputOuter)}
-                  synthesisText={session?.stageContent?.synthesis}
-                  executionText={session?.stageContent?.execution}
-                />
-              </Box>
-            </Box>
-          ) : (
-            <Box flexDirection="row" flexGrow={1}>
-              <WorkspacePane
-                name="council"
-                outerWidth={councilPaneOuter}
-                focused={focusedPane === 'council'}
-                chatContent={chatContent}
-                promptContent={promptContent}
-                commandValue={commandValue}
-                ghostDraft={focusedPane === 'council' ? undefined : unfocusedDraft}
-                switchHint="alt-1 to focus"
-              />
-              <WorkspacePane
-                name="research"
-                outerWidth={researchPaneOuter}
-                focused={focusedPane === 'research'}
-                chatContent={chatContent}
-                promptContent={promptContent}
-                commandValue={commandValue}
-                ghostDraft={focusedPane === 'research' ? undefined : unfocusedDraft}
-                switchHint="alt-2 to focus"
-              />
-            </Box>
-          )}
+          {/* Center: dual WorkspacePane layout. Each pane is a complete
+              workspace (chat + input when focused, ghost when not).
+              When a session is active, the matching pane (per
+              `sessionPane`) ALSO renders the voice-output StagePane
+              between the chat and the input — folding the old
+              active-session split-center into the per-pane model. */}
+          <Box flexDirection="row" flexGrow={1}>
+            <WorkspacePane
+              name="council"
+              outerWidth={councilPaneOuter}
+              focused={focusedPane === 'council'}
+              chatContent={chatContent}
+              promptContent={promptContent}
+              commandValue={commandValue}
+              ghostDraft={focusedPane === 'council' ? undefined : unfocusedDraft}
+              switchHint="alt-1 to focus"
+              voiceOutputContent={
+                sessionPane === 'council' ? (
+                  <StagePane
+                    stage={stage}
+                    focusedVoice={focusedVoice}
+                    availableColumns={paneInner(councilPaneOuter)}
+                    synthesisText={session?.stageContent?.synthesis}
+                    executionText={session?.stageContent?.execution}
+                  />
+                ) : undefined
+              }
+              voiceOutputTitle={sessionPane === 'council' ? voiceOutputTitle : undefined}
+            />
+            <WorkspacePane
+              name="research"
+              outerWidth={researchPaneOuter}
+              focused={focusedPane === 'research'}
+              chatContent={chatContent}
+              promptContent={promptContent}
+              commandValue={commandValue}
+              ghostDraft={focusedPane === 'research' ? undefined : unfocusedDraft}
+              switchHint="alt-2 to focus"
+              voiceOutputContent={
+                sessionPane === 'research' ? (
+                  <StagePane
+                    stage={stage}
+                    focusedVoice={focusedVoice}
+                    availableColumns={paneInner(researchPaneOuter)}
+                    synthesisText={session?.stageContent?.synthesis}
+                    executionText={session?.stageContent?.execution}
+                  />
+                ) : undefined
+              }
+              voiceOutputTitle={sessionPane === 'research' ? voiceOutputTitle : undefined}
+            />
+          </Box>
           <Box
             width={STATUS_WIDTH}
             flexShrink={0}
@@ -382,38 +375,10 @@ export function CouncilSessionScreen({
           </Box>
         </Box>
       )}
-      {/* Command pane visually aligns with the chat/voice-output area:
-          left margin = voice list column width, right margin = status
-          pane width. So it sits "under" the center column rather than
-          spanning the full screen. Only at wide widths; the collapsed
-          narrow layout has no voice list to align to.
-
-          Phase 1 of dual-pane work (2026-06-07): at idle the PromptInput
-          lives inside the council workspace pane, so no bottom command
-          pane is rendered. During active sessions the bottom command
-          pane is preserved (Phase 3 will fold it into per-pane inputs). */}
-      {isSessionActive && (
-        <Box
-          marginLeft={isWide ? VOICE_LIST_WIDTH : 0}
-          marginRight={isWide ? STATUS_WIDTH : 0}
-          borderStyle="round"
-          borderColor={ACCENT}
-          backgroundColor={BG}
-          flexDirection="column"
-          borderText={paneTitle('command')}
-        >
-          {promptContent ? (
-            // REPL slot — its PromptInput already manages its own input.
-            // No EffectiveTerminalSizeProvider here because the prompt is
-            // a single line; horizontal width matters for input wrap but
-            // PromptInput uses its own column-aware logic that respects
-            // the flex-allocated width.
-            promptContent
-          ) : (
-            <SessionCommand value={commandValue} availableColumns={paneInner(centerOuter)} />
-          )}
-        </Box>
-      )}
+      {/* Phase 3b dual-pane (2026-06-07): bottom command pane removed
+          entirely. The PromptInput now always lives inside the focused
+          workspace pane (council or research). Both idle and active
+          session states use the same dual-pane center layout. */}
       <HelpBar availableColumns={interiorWidth} />
       {/* Overlay slot — slash-command modals (/theme, /spend, /help)
           render absolute-positioned at the bottom of the OUTER screen.
@@ -537,12 +502,16 @@ function HelpBar({ availableColumns }: { availableColumns: number }): React.Reac
 }
 
 /**
- * One of the two side-by-side workspace panes at idle (council / research).
+ * One of the two side-by-side workspace panes (council / research).
  *
- * Focused pane: bright accent border, hosts the chat scrollback (top)
- * and the REPL's live PromptInput (bottom — passed via `promptContent`).
- * Unfocused pane: dimmed border, hosts an empty middle area and a ghost
- * preview of its draft text at the bottom, plus a switch hint.
+ * Layout matrix:
+ * - Focused + no voiceOutput: chat (grows) + promptContent (bottom).
+ * - Focused + voiceOutput:    chat (grows ½) + voiceOutput (grows ½) + promptContent.
+ * - Unfocused + no voiceOutput: placeholder hint (grows) + ghost draft.
+ * - Unfocused + voiceOutput:   voiceOutput (grows) + ghost draft.
+ *
+ * The voiceOutput area renders inside an inner Box with its own borderless
+ * title heading so it's visually distinct from the chat scrollback above.
  *
  * The PromptInput uses `useEffectiveTerminalSize` for its wrap math, so
  * the input slot is wrapped in an `EffectiveTerminalSizeProvider` bounded
@@ -557,6 +526,8 @@ function WorkspacePane({
   commandValue,
   ghostDraft,
   switchHint,
+  voiceOutputContent,
+  voiceOutputTitle,
 }: {
   name: 'council' | 'research'
   outerWidth: number
@@ -567,6 +538,10 @@ function WorkspacePane({
   /** Ghost draft text for the unfocused state. `undefined` when focused. */
   ghostDraft?: string
   switchHint: string
+  /** When this pane owns the active session, the voice-output StagePane.
+   *  Renders below the chat (or alone if unfocused). */
+  voiceOutputContent?: React.ReactNode
+  voiceOutputTitle?: string
 }): React.ReactNode {
   const borderColor = focused ? ACCENT : 'gray'
   const innerWidth = paneInner(outerWidth)
@@ -580,17 +555,45 @@ function WorkspacePane({
       flexDirection="column"
       borderText={paneTitle(name)}
     >
-      <Box flexGrow={1} flexDirection="column">
-        {focused ? (
+      {/* Top area: chat (focused) or placeholder (unfocused + no session).
+          Unfocused + active session: skip the placeholder, voice-output
+          fills the area. */}
+      {focused ? (
+        <Box flexGrow={voiceOutputContent ? 1 : 2} flexDirection="column">
           <ChatPane availableColumns={outerWidth} chatContent={chatContent} />
-        ) : (
-          <Box paddingX={1} paddingY={1} flexDirection="column" width={innerWidth}>
-            <Text dimColor italic>
-              [{name} workspace — {switchHint}]
-            </Text>
-          </Box>
-        )}
-      </Box>
+        </Box>
+      ) : voiceOutputContent ? null : (
+        <Box
+          flexGrow={1}
+          paddingX={1}
+          paddingY={1}
+          flexDirection="column"
+          width={innerWidth}
+        >
+          <Text dimColor italic>
+            [{name} workspace — {switchHint}]
+          </Text>
+        </Box>
+      )}
+      {/* Middle area: voice-output (StagePane) when this pane owns the
+          active session. Grows in both focused and unfocused states. */}
+      {voiceOutputContent && (
+        <Box
+          flexGrow={focused ? 1 : 2}
+          flexDirection="column"
+          paddingX={1}
+          paddingTop={1}
+          width={innerWidth}
+        >
+          {voiceOutputTitle && (
+            <Box marginBottom={1}>
+              <Text dimColor>— {voiceOutputTitle} —</Text>
+            </Box>
+          )}
+          {voiceOutputContent}
+        </Box>
+      )}
+      {/* Bottom area: live PromptInput (focused) or ghost draft (unfocused). */}
       {focused && promptContent ? (
         <Box flexShrink={0} flexDirection="column">
           <EffectiveTerminalSizeProvider columns={innerWidth}>
@@ -602,9 +605,8 @@ function WorkspacePane({
           <SessionCommand value={commandValue} availableColumns={innerWidth} />
         </Box>
       ) : (
-        // Unfocused: render a ghost preview of the draft so the user
-        // sees what they had been typing in this pane before switching.
-        // Empty draft shows a "your text here" placeholder.
+        // Unfocused: ghost draft preview so the user sees what they had
+        // been typing in this pane before switching.
         <Box
           flexShrink={0}
           flexDirection="row"

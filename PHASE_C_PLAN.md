@@ -437,6 +437,38 @@ Other chat-tree consumers of `useTerminalSize` exist (`HistorySearchDialog`, `Me
 **Effort**: ~25 min actual (budget ~3h for full C.3.2). Word wrap turned out to be 2 single-line swaps because the hook-pattern migration is minimal.
 
 **Still in C.3.2 (not yet done)**:
-- **Modal positioning** — `/theme`, `/spend` etc. modals still overlay only the chat sub-pane. Fix: add `overlayContent` slot to CouncilSessionScreen and route the existing FullscreenLayout `modal` prop there with absolute positioning relative to the outer container.
+- ~~Modal positioning — `/theme`, `/spend` etc. modals still overlay only the chat sub-pane.~~ → shipped, see §19.
 
 **Effort delta**: ~25 min for the modal slot still pending. Total C.3 (a + 3.1 + 3.2 partial) at ~95 min; budget was 7–9h.
+
+## 19. C.3.2 — modal positioning fix
+
+Modals (`/theme`, `/spend`, `/help`, etc.) now overlay the entire screen instead of only the chat sub-pane.
+
+**Files modified**:
+- `src/components/CouncilSession/CouncilSessionScreen.tsx`:
+  - Added `terminalRows`, `overlayContent`, `modalScrollRef` props
+  - Imported `ModalContext` from `src/context/modalContext.tsx` and `ScrollBoxHandle` type
+  - Added `MODAL_TRANSCRIPT_PEEK = 2` constant mirroring FullscreenLayout's
+  - At the end of the outer Box (after HelpBar), conditionally renders an absolute-positioned modal pane when `overlayContent` is non-null. Wraps with `<ModalContext value={...}>` providing `rows` / `columns` / `scrollRef`. Renders the `"▔"` divider + paddingX wrapper to match FullscreenLayout's behavior exactly.
+  - The absolute position is relative to the outer Box, so modals now overlay the entire session view — voice panes, chat, voice output, status, command — exactly as the user expects from a slash command dialog.
+- `src/screens/REPL.tsx`:
+  - Changed `const transcriptCols = useTerminalSize().columns` to capture both cols and rows: `const terminalSize = useTerminalSize(); const transcriptCols = terminalSize.columns; const transcriptRows = terminalSize.rows`
+  - Passed `terminalRows={transcriptRows} overlayContent={centeredModal} modalScrollRef={modalScrollRef}` to `<CouncilSessionScreen>`
+  - Changed `modal={centeredModal}` → `modal={null}` on `<FullscreenLayout>` — modal no longer renders inside FullscreenLayout (which is inside the chat sub-pane)
+
+**Visual delta**:
+- Before: `/theme` opens a modal that's the width of the chat sub-pane (roughly half-screen). Looks cramped, theme preview squashed.
+- After: `/theme` opens a modal spanning the full terminal width, with the `▔` divider stretching across the screen. Modal content gets `terminalColumns - 4` for layout, same as before Phase C.
+
+**Verification**: `bun run build` clean. useEffectiveTerminalSize tests still 4/4. The ModalContext contract is preserved exactly — Pane / Select / Tabs descendants see the same rows/columns/scrollRef they did under FullscreenLayout.
+
+**Effort**: ~30 min actual.
+
+**C.3 phase complete**: all three sub-phases (3.1 REPL surgery, 3.1 polish command alignment, 3.2 word wrap + StatusBar dedupe + modal positioning) are now done. Total Phase C effort across all sub-phases: ~2h 5min actual vs. 13–18h budget.
+
+**Next options**:
+- **Phase D** (per the original `COUNCIL_MODE_REDESIGN.md` §6 plan) — Tab to cycle focused voice, Esc to background sessions, per-voice colors via `vendorBadge`, true streaming via `onProgress`, real synthesizer/executor/review content in voice-output sub-pane.
+- **Cleanup tasks** — delete `src/components/StatusBar.tsx` and `src/components/StatusPane.tsx` (both dormant), delete `src/components/FullscreenLayout.tsx` (still compiling but mostly bypassed — modal slot now empty), remove the unused `src/components/CouncilSession/SessionCommand.tsx` (only used in preview script as a fallback that's never hit in production).
+- **Smoke harden** — write integration tests for the full chat flow + slash command + /council + /discover paths through the new layout. Currently untested at the integration level.
+- **Pause** and move to research-prep work.

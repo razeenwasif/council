@@ -4347,7 +4347,9 @@ export function REPL({
   // wrapping). Clearing searchQuery triggers VML's setSearchQuery('')
   // which clears positionsCache + setPositions(null). Bar closes.
   // User hits / again → fresh everything.
-  const transcriptCols = useTerminalSize().columns;
+  const terminalSize = useTerminalSize();
+  const transcriptCols = terminalSize.columns;
+  const transcriptRows = terminalSize.rows;
   // Phase B council-mode session view — subscribes to the council/debate
   // event bus. Returns null when no session is active (the common case);
   // returns a SessionState when /council or /discover is running, in which
@@ -4665,8 +4667,8 @@ export function REPL({
     {feature('MESSAGE_ACTIONS') && isFullscreenEnvEnabled() && !disableMessageActions ? <MessageActionsKeybindings handlers={messageActionHandlers} isActive={cursor !== null} /> : null}
     <CancelRequestHandler {...cancelRequestProps} />
     <MCPConnectionManager key={remountKey} dynamicMcpConfig={dynamicMcpConfig} isStrictMcpConfig={strictMcpConfig}>
-      <CouncilSessionScreen session={sessionState} terminalColumns={transcriptCols} chatContent={
-      <FullscreenLayout scrollRef={scrollRef} overlay={toolPermissionOverlay} bottomFloat={isBuddyEnabled() && companionVisible && !companionNarrow ? <CompanionFloatingBubble /> : undefined} modal={centeredModal} modalScrollRef={modalScrollRef} dividerYRef={dividerYRef} hidePill={!!viewedAgentTask} hideSticky={!!viewedTeammateTask} newMessageCount={unseenDivider?.count ?? 0} onPillClick={() => {
+      <CouncilSessionScreen session={sessionState} terminalColumns={transcriptCols} terminalRows={transcriptRows} overlayContent={centeredModal} modalScrollRef={modalScrollRef} chatContent={
+      <FullscreenLayout scrollRef={scrollRef} overlay={toolPermissionOverlay} bottomFloat={isBuddyEnabled() && companionVisible && !companionNarrow ? <CompanionFloatingBubble /> : undefined} modal={null} modalScrollRef={modalScrollRef} dividerYRef={dividerYRef} hidePill={!!viewedAgentTask} hideSticky={!!viewedTeammateTask} newMessageCount={unseenDivider?.count ?? 0} onPillClick={() => {
         setCursor(null);
         jumpToNew(scrollRef.current);
       }} scrollable={<>

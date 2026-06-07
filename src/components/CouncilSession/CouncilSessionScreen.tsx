@@ -1,5 +1,8 @@
 import React from 'react'
 import { Box, Text } from '../../ink.js'
+import type { RefObject } from 'react'
+import type { ScrollBoxHandle } from '../../ink/components/ScrollBox.js'
+import { ModalContext } from '../../context/modalContext.js'
 import { ChatPane } from './ChatPane.js'
 import { SessionCommand } from './SessionCommand.js'
 import { SessionStatus } from './SessionStatus.js'
@@ -45,6 +48,9 @@ export type CouncilSessionScreenProps = {
   session: SessionState | null
   /** Total terminal width. We compute pane widths from this. */
   terminalColumns: number
+  /** Total terminal rows. Used to size modal overlays. Defaults to a
+   *  generous fallback when not provided (preview-only path). */
+  terminalRows?: number
   /** Current command buffer (used by SessionCommand when no `promptContent`
    *  slot is provided — the preview-only path). */
   commandValue?: string
@@ -57,6 +63,17 @@ export type CouncilSessionScreenProps = {
    *  provided, renders inside the command pane in place of the static
    *  `SessionCommand` stub. */
   promptContent?: React.ReactNode
+  /** Overlay (modal) slot — typically the centered slash-command dialog
+   *  (`/theme`, `/spend`, `/help`, etc.). When provided, renders
+   *  absolute-positioned at the bottom of the screen, overlaying the
+   *  full session view (not just the chat sub-pane). Wrapped with
+   *  ModalContext so descendant Pane / Select / Tabs components size
+   *  themselves correctly. */
+  overlayContent?: React.ReactNode
+  /** Scroll-box handle for the modal's internal ScrollBox. Threaded
+   *  through ModalContext so Tabs (which owns its own ScrollBox) can
+   *  attach it. */
+  modalScrollRef?: RefObject<ScrollBoxHandle | null>
 }
 
 /** Build an idle Voice array for a given mode — all roles in pending status. */
@@ -96,12 +113,20 @@ function paneTitle(content: string) {
   return { content: ` ${content} `, position: 'top' as const, align: 'start' as const, offset: 2 }
 }
 
+/** Rows reserved at the top of a modal so the user can still see the
+ *  last few transcript lines behind it. Mirrors FullscreenLayout's
+ *  identically-named constant. */
+const MODAL_TRANSCRIPT_PEEK = 2
+
 export function CouncilSessionScreen({
   session,
   terminalColumns,
+  terminalRows = 40,
   commandValue = '',
   chatContent,
   promptContent,
+  overlayContent,
+  modalScrollRef,
 }: CouncilSessionScreenProps): React.ReactNode {
   if (terminalColumns < NARROW_THRESHOLD) return null
 
@@ -343,6 +368,42 @@ export function CouncilSessionScreen({
         )}
       </Box>
       <HelpBar availableColumns={interiorWidth} />
+      {/* Overlay slot — slash-command modals (/theme, /spend, /help)
+          render absolute-positioned at the bottom of the OUTER screen.
+          Previously these were inside FullscreenLayout's modal slot,
+          which is now inside the chat sub-pane — they'd overlay only
+          the chat, looking small and off-center. Hoisting to the outer
+          Box's coordinate space restores full-screen modal behavior.
+          Mirrors FullscreenLayout's ModalContext + absolute wrapping
+          (see src/context/modalContext.tsx for the contract). */}
+      {overlayContent && (
+        <ModalContext
+          value={{
+            rows: terminalRows - MODAL_TRANSCRIPT_PEEK - 1,
+            columns: terminalColumns - 4,
+            scrollRef: modalScrollRef ?? null,
+          }}
+        >
+          <Box
+            position="absolute"
+            bottom={0}
+            left={0}
+            right={0}
+            maxHeight={terminalRows - MODAL_TRANSCRIPT_PEEK}
+            flexDirection="column"
+            overflow="hidden"
+            opaque={true}
+            backgroundColor={BG}
+          >
+            <Box flexShrink={0}>
+              <Text color="permission">{'▔'.repeat(terminalColumns)}</Text>
+            </Box>
+            <Box flexDirection="column" paddingX={2} flexShrink={0} overflow="hidden">
+              {overlayContent}
+            </Box>
+          </Box>
+        </ModalContext>
+      )}
     </Box>
   )
 }

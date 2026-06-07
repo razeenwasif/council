@@ -64,6 +64,7 @@ Authoritative references for different needs:
 | Built-in agent definitions | `src/tools/AgentTool/built-in/` |
 | TUI palette/border/spinner work (Phases 1–3a) | `TUI_REDESIGN.md` (§14 documents Phase 3b revert) |
 | Council-mode session view design + status | `COUNCIL_MODE_REDESIGN.md` (§11 Phase A, §12 Phase B) |
+| Phase C design (session view as default layout) | `PHASE_C_PLAN.md` |
 | Session view components | `src/components/CouncilSession/`, `scripts/preview-council-mode.tsx` |
 | Session bus + state hook | `src/coordinator/council/sessionBus.ts`, `src/hooks/useSessionState.ts` |
 | Self-improving council telemetry plan | `TELEMETRY_PLAN.md` |

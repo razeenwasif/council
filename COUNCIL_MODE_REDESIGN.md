@@ -387,6 +387,8 @@ Replaces the static mock data with live event-driven state from the council / de
 
 ## 13. What's deferred to Phase C / D
 
+**Note (2026-06-07)**: Phase C scope was reframed mid-Phase-B based on user feedback — the session view becomes the *outermost layout always*, not just a session-mode replacement. See `PHASE_C_PLAN.md` for the dedicated plan including layout decisions (stacked-left voice panes, split center, cumulative idle status).
+
 Carried over from `§6` phase plan; explicitly not in Phase B MVP:
 
 - **Phase C — discover-specific polish**: discover voices wire through the same adapter pattern as council. Should "just work" but needs smoke against a real `/discover` run.

@@ -446,16 +446,22 @@ Phasing:
 | Phase | Scope | Effort |
 |------|-------|--------|
 | **1 — Layout scaffold** | Center splits into council pane (chat + the single existing `PromptInput`) and research pane (placeholder). Bottom command pane removed at idle, preserved during active session for compatibility. Visual change only. | ✓ shipped |
-| **2 — Per-pane drafts + `Ctrl+Tab` focus** | Two real `PromptInput` instances, per-pane draft state, focused pane gets accent border, `Ctrl+Tab` toggles which one receives keystrokes. | pending |
+| **2 — Per-pane drafts + `Alt+1` / `Alt+2` focus** | Single mounted `PromptInput` (architectural pragmatism — splitting REPL's dense `promptContent` JSX into two real instances was a major refactor with marginal user-visible benefit). REPL holds two drafts; `Alt+1`/`Alt+2` swap which draft is live and where the input renders. Focused pane gets the accent border; unfocused pane shows a ghost preview of its draft. | ✓ shipped |
 | **3 — Per-pane scrollbacks + orchestrator routing** | Each pane's submit routes to its orchestrator (council vs discover). Independent message threads. Active session split-center (chat + voice-output) folds into the relevant pane. | pending |
 | **4 — Combined status + "research" label** | Status sums both panes. Surface "research" instead of "discover" in the UI. | pending |
 
-**Phase 1 implementation notes** (this commit):
+**Phase 1 implementation notes**:
 - `CouncilSessionScreen.tsx`: idle wide-mode center renders two side-by-side `Box`es (`councilPaneOuter` and `researchPaneOuter`, each ~half of `centerOuter`).
 - Council pane: `ChatPane` (grows) + `promptContent` slot (shrinks). The `promptContent` slot is wrapped in its own `EffectiveTerminalSizeProvider` so `PromptInput`'s wrap math sees the council-pane inner width instead of the full terminal width — same primitive as `ChatPane`'s existing provider.
-- Research pane: static placeholder text ("research pane — coming in Phase 2", with a "ctrl-tab to focus" hint).
+- Research pane: static placeholder text ("research pane — coming in Phase 2", with an "alt-2 to focus" hint).
 - Bottom command pane: conditioned on `isSessionActive` — preserved during sessions (so the existing active-session split layout keeps working), removed at idle.
 - Active-session layout (chat + voice-output split) is intentionally unchanged in Phase 1 — Phase 3 folds it into the per-pane model.
+
+**Phase 2 implementation notes** (this commit):
+- `REPL.tsx`: added `focusedPane: 'council' | 'research'` and `unfocusedDraft: string` state. Added a `useInput` hook that handles `Alt+1` / `Alt+2`, calls `switchPane(target)` which saves the live `inputValue` into `unfocusedDraft` and loads the previous `unfocusedDraft` into `inputValue`. Drafts persist per pane across focus switches. `event.stopImmediatePropagation()` keeps the alt-keypress from also reaching `PromptInput`.
+- `CouncilSessionScreen.tsx`: accepts new props `focusedPane` and `unfocusedDraft`. Idle wide-mode center now renders two `<WorkspacePane>` components. The focused pane gets the accent-orange border, the chat scrollback, and the live `promptContent` slot. The unfocused pane gets a gray border, an empty middle area, and a ghost preview of its draft text (italic dim) — or an "(empty draft — alt-X to focus and type)" placeholder when the draft is empty.
+- Why single `PromptInput`, not two: the REPL's `promptContent` slot is a dense ~120-line JSX tree containing `PromptInput`, permission dialogs, focused input dialogs, queued commands, the companion sprite, etc. Splitting it into two parallel instances would require duplicating that whole subtree and threading per-pane refs, abort controllers, and modal state. The single-mounted approach gives functionally identical UX (drafts preserved, both panes accept input by focusing first) at a fraction of the refactor cost.
+- Known gap (Phase 3 work): chat scrollback is still shared — only the focused pane renders it. When the user switches to research and back to council, the same scrollback reappears. Per-pane message threads + orchestrator routing in Phase 3 will fix this and also fold the active-session voice-output split into the focused pane.
 
 ## 13. What's deferred to Phase C / D
 

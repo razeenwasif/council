@@ -75,6 +75,15 @@ export type CouncilSessionScreenProps = {
    *  through ModalContext so Tabs (which owns its own ScrollBox) can
    *  attach it. */
   modalScrollRef?: RefObject<ScrollBoxHandle | null>
+  /** Which workspace pane currently owns the live PromptInput. Phase 2
+   *  of dual-pane work (2026-06-07). The unfocused pane shows ghost text
+   *  for its draft. Defaults to 'council' at idle. */
+  focusedPane?: 'council' | 'research'
+  /** Draft text of the pane that does NOT currently have focus —
+   *  displayed as static ghost text in that pane's input area. The
+   *  focused pane's draft is the REPL's live `inputValue` and renders
+   *  via `promptContent`. */
+  unfocusedDraft?: string
 }
 
 /** Build an idle Voice array for a given mode — all roles in pending status. */
@@ -132,6 +141,8 @@ export function CouncilSessionScreen({
   promptContent,
   overlayContent,
   modalScrollRef,
+  focusedPane = 'council',
+  unfocusedDraft = '',
 }: CouncilSessionScreenProps): React.ReactNode {
   if (terminalColumns < NARROW_THRESHOLD) return null
 
@@ -287,68 +298,26 @@ export function CouncilSessionScreen({
             </Box>
           ) : (
             <Box flexDirection="row" flexGrow={1}>
-              {/* Council workspace pane — chat scrollback on top, the
-                  REPL's PromptInput at the bottom. Phase 1: this is the
-                  only "live" pane; the research pane is a placeholder.
-                  Phase 2 will give each pane an independent PromptInput
-                  + draft state. */}
-              <Box
-                width={councilPaneOuter}
-                flexShrink={0}
-                borderStyle="round"
-                borderColor={ACCENT}
-                backgroundColor={BG}
-                flexDirection="column"
-                borderText={paneTitle('council')}
-              >
-                <Box flexGrow={1} flexDirection="column">
-                  <ChatPane
-                    availableColumns={councilPaneOuter}
-                    chatContent={chatContent}
-                  />
-                </Box>
-                {promptContent ? (
-                  <Box flexShrink={0} flexDirection="column">
-                    {/* PromptInput uses useEffectiveTerminalSize for its
-                        wrap math. Wrap it so its width math is bounded by
-                        the council pane's inner width, not the real
-                        terminal width. */}
-                    <EffectiveTerminalSizeProvider columns={paneInner(councilPaneOuter)}>
-                      {promptContent}
-                    </EffectiveTerminalSizeProvider>
-                  </Box>
-                ) : (
-                  <Box flexShrink={0} flexDirection="column" paddingX={1}>
-                    <SessionCommand
-                      value={commandValue}
-                      availableColumns={paneInner(councilPaneOuter)}
-                    />
-                  </Box>
-                )}
-              </Box>
-              {/* Research workspace pane — placeholder until Phase 2
-                  wires its own PromptInput + per-pane scrollback. */}
-              <Box
-                width={researchPaneOuter}
-                flexShrink={0}
-                borderStyle="round"
-                borderColor={ACCENT}
-                backgroundColor={BG}
-                flexDirection="column"
-                borderText={paneTitle('research')}
-              >
-                <Box flexGrow={1} flexDirection="column" paddingX={1} paddingY={1}>
-                  <Text dimColor italic>
-                    [research pane — coming in Phase 2]
-                  </Text>
-                  <Box marginTop={1}>
-                    <Text dimColor>
-                      will host its own input + scrollback;
-                    </Text>
-                  </Box>
-                  <Text dimColor>alt-2 to focus, type a research question</Text>
-                </Box>
-              </Box>
+              <WorkspacePane
+                name="council"
+                outerWidth={councilPaneOuter}
+                focused={focusedPane === 'council'}
+                chatContent={chatContent}
+                promptContent={promptContent}
+                commandValue={commandValue}
+                ghostDraft={focusedPane === 'council' ? undefined : unfocusedDraft}
+                switchHint="alt-1 to focus"
+              />
+              <WorkspacePane
+                name="research"
+                outerWidth={researchPaneOuter}
+                focused={focusedPane === 'research'}
+                chatContent={chatContent}
+                promptContent={promptContent}
+                commandValue={commandValue}
+                ghostDraft={focusedPane === 'research' ? undefined : unfocusedDraft}
+                switchHint="alt-2 to focus"
+              />
             </Box>
           )}
           <Box
@@ -563,6 +532,93 @@ function HelpBar({ availableColumns }: { availableColumns: number }): React.Reac
       <Text dimColor>
         ctrl-c cancel · esc background · alt-1/alt-2 switch pane · enter focus
       </Text>
+    </Box>
+  )
+}
+
+/**
+ * One of the two side-by-side workspace panes at idle (council / research).
+ *
+ * Focused pane: bright accent border, hosts the chat scrollback (top)
+ * and the REPL's live PromptInput (bottom — passed via `promptContent`).
+ * Unfocused pane: dimmed border, hosts an empty middle area and a ghost
+ * preview of its draft text at the bottom, plus a switch hint.
+ *
+ * The PromptInput uses `useEffectiveTerminalSize` for its wrap math, so
+ * the input slot is wrapped in an `EffectiveTerminalSizeProvider` bounded
+ * to this pane's inner width.
+ */
+function WorkspacePane({
+  name,
+  outerWidth,
+  focused,
+  chatContent,
+  promptContent,
+  commandValue,
+  ghostDraft,
+  switchHint,
+}: {
+  name: 'council' | 'research'
+  outerWidth: number
+  focused: boolean
+  chatContent?: React.ReactNode
+  promptContent?: React.ReactNode
+  commandValue: string
+  /** Ghost draft text for the unfocused state. `undefined` when focused. */
+  ghostDraft?: string
+  switchHint: string
+}): React.ReactNode {
+  const borderColor = focused ? ACCENT : 'gray'
+  const innerWidth = paneInner(outerWidth)
+  return (
+    <Box
+      width={outerWidth}
+      flexShrink={0}
+      borderStyle="round"
+      borderColor={borderColor}
+      backgroundColor={BG}
+      flexDirection="column"
+      borderText={paneTitle(name)}
+    >
+      <Box flexGrow={1} flexDirection="column">
+        {focused ? (
+          <ChatPane availableColumns={outerWidth} chatContent={chatContent} />
+        ) : (
+          <Box paddingX={1} paddingY={1} flexDirection="column" width={innerWidth}>
+            <Text dimColor italic>
+              [{name} workspace — {switchHint}]
+            </Text>
+          </Box>
+        )}
+      </Box>
+      {focused && promptContent ? (
+        <Box flexShrink={0} flexDirection="column">
+          <EffectiveTerminalSizeProvider columns={innerWidth}>
+            {promptContent}
+          </EffectiveTerminalSizeProvider>
+        </Box>
+      ) : focused ? (
+        <Box flexShrink={0} flexDirection="column" paddingX={1}>
+          <SessionCommand value={commandValue} availableColumns={innerWidth} />
+        </Box>
+      ) : (
+        // Unfocused: render a ghost preview of the draft so the user
+        // sees what they had been typing in this pane before switching.
+        // Empty draft shows a "your text here" placeholder.
+        <Box
+          flexShrink={0}
+          flexDirection="row"
+          paddingX={1}
+          width={innerWidth}
+        >
+          <Text dimColor>{'❯ '}</Text>
+          {ghostDraft && ghostDraft.length > 0 ? (
+            <Text dimColor>{ghostDraft}</Text>
+          ) : (
+            <Text dimColor italic>(empty draft — {switchHint} and type)</Text>
+          )}
+        </Box>
+      )}
     </Box>
   )
 }

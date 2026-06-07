@@ -1385,6 +1385,17 @@ export function REPL({
     const timer = setTimeout(setIsPromptInputActive, PROMPT_SUPPRESSION_MS, false);
     return () => clearTimeout(timer);
   }, [inputValue]);
+  // Dual-pane center (Phase 2 of dual-pane work, 2026-06-07): the
+  // session view's center splits into two workspace panes — council
+  // (council orchestrator) and research (discover orchestrator). The
+  // single PromptInput is mounted in whichever pane has focus;
+  // `unfocusedDraft` is the preserved draft of the other pane. Alt+1
+  // focuses council; Alt+2 focuses research. Swap saves inputValue into
+  // unfocusedDraft and loads the previous unfocusedDraft into inputValue
+  // — drafts persist per pane across focus switches. Phase 3 will route
+  // per-pane submissions to the right orchestrator.
+  const [focusedPane, setFocusedPane] = useState<'council' | 'research'>('council');
+  const [unfocusedDraft, setUnfocusedDraft] = useState<string>('');
   const [inputMode, setInputMode] = useState<PromptInputMode>('prompt');
   const [stashedPrompt, setStashedPrompt] = useState<{
     text: string;
@@ -4294,6 +4305,31 @@ export function REPL({
   // Props for GlobalKeybindingHandlers component (rendered inside KeybindingSetup)
   const virtualScrollActive = isFullscreenEnvEnabled() && !disableVirtualScroll;
 
+  // Dual-pane center: Alt+1 focuses council pane; Alt+2 focuses research
+  // pane. Swap saves the current inputValue into unfocusedDraft and
+  // loads the previous unfocusedDraft into inputValue — drafts persist
+  // per pane. Only fires when fullscreen is enabled (the only place the
+  // dual-pane layout renders).
+  const switchPane = useCallback((target: 'council' | 'research') => {
+    if (target === focusedPane) return;
+    const currentInput = inputValueRef.current;
+    const previousOtherDraft = unfocusedDraft;
+    setUnfocusedDraft(currentInput);
+    setInputValue(previousOtherDraft);
+    setFocusedPane(target);
+  }, [focusedPane, unfocusedDraft, setInputValue]);
+  useInput((input, key, event) => {
+    if (!isFullscreenEnvEnabled()) return;
+    if (!key.meta) return;
+    if (input === '1') {
+      switchPane('council');
+      event.stopImmediatePropagation();
+    } else if (input === '2') {
+      switchPane('research');
+      event.stopImmediatePropagation();
+    }
+  });
+
   // Transcript search state. Hooks must be unconditional so they live here
   // (not inside the `if (screen === 'transcript')` branch below); isActive
   // gates the useInput. Query persists across bar open/close so n/N keep
@@ -4667,7 +4703,7 @@ export function REPL({
     {feature('MESSAGE_ACTIONS') && isFullscreenEnvEnabled() && !disableMessageActions ? <MessageActionsKeybindings handlers={messageActionHandlers} isActive={cursor !== null} /> : null}
     <CancelRequestHandler {...cancelRequestProps} />
     <MCPConnectionManager key={remountKey} dynamicMcpConfig={dynamicMcpConfig} isStrictMcpConfig={strictMcpConfig}>
-      <CouncilSessionScreen session={sessionState} terminalColumns={transcriptCols} terminalRows={transcriptRows} overlayContent={centeredModal} modalScrollRef={modalScrollRef} chatContent={
+      <CouncilSessionScreen session={sessionState} terminalColumns={transcriptCols} terminalRows={transcriptRows} overlayContent={centeredModal} modalScrollRef={modalScrollRef} focusedPane={focusedPane} unfocusedDraft={unfocusedDraft} chatContent={
       <FullscreenLayout scrollRef={scrollRef} overlay={toolPermissionOverlay} bottomFloat={isBuddyEnabled() && companionVisible && !companionNarrow ? <CompanionFloatingBubble /> : undefined} modal={null} modalScrollRef={modalScrollRef} dividerYRef={dividerYRef} hidePill={!!viewedAgentTask} hideSticky={!!viewedTeammateTask} newMessageCount={unseenDivider?.count ?? 0} onPillClick={() => {
         setCursor(null);
         jumpToNew(scrollRef.current);

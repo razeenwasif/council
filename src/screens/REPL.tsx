@@ -22,6 +22,8 @@ import type { TabStatusKind } from '../ink/hooks/use-tab-status.js';
 import { CostThresholdDialog } from '../components/CostThresholdDialog.js';
 import { IdleReturnDialog } from '../components/IdleReturnDialog.js';
 import { StatusBar } from '../components/StatusBar.js';
+import { CouncilSessionScreen } from '../components/CouncilSession/index.js';
+import { useSessionState } from '../hooks/useSessionState.js';
 import * as React from 'react';
 import { useEffect, useMemo, useRef, useState, useCallback, useDeferredValue, useLayoutEffect, type RefObject } from 'react';
 import { useNotifications } from '../context/notifications.js';
@@ -4347,6 +4349,11 @@ export function REPL({
   // which clears positionsCache + setPositions(null). Bar closes.
   // User hits / again → fresh everything.
   const transcriptCols = useTerminalSize().columns;
+  // Phase B council-mode session view — subscribes to the council/debate
+  // event bus. Returns null when no session is active (the common case);
+  // returns a SessionState when /council or /discover is running, in which
+  // case we early-return the session screen instead of the regular REPL.
+  const sessionState = useSessionState();
   const prevColsRef = React.useRef(transcriptCols);
   React.useEffect(() => {
     if (prevColsRef.current !== transcriptCols) {
@@ -5094,6 +5101,22 @@ export function REPL({
       </Box>} />
     </MCPConnectionManager>
   </KeybindingSetup>;
+  // Phase B — when a council/discover session is active, replace the
+  // regular REPL chrome with the dedicated CouncilSessionScreen. The
+  // session bus drives this via useSessionState above. The same
+  // AlternateScreen wrapper applies so the session view participates in
+  // the same fullscreen lifecycle as the regular REPL.
+  if (sessionState) {
+    const sessionScreen = <KeybindingSetup>
+      <CouncilSessionScreen session={sessionState} terminalColumns={transcriptCols} />
+    </KeybindingSetup>;
+    if (isFullscreenEnvEnabled()) {
+      return <AlternateScreen mouseTracking={isMouseTrackingEnabled()}>
+        {sessionScreen}
+      </AlternateScreen>;
+    }
+    return sessionScreen;
+  }
   if (isFullscreenEnvEnabled()) {
     return <AlternateScreen mouseTracking={isMouseTrackingEnabled()}>
       {mainReturn}

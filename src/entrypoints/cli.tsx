@@ -159,9 +159,14 @@ async function main(): Promise<void> {
   const { eagerParseCliFlag } = await import('../utils/cliArgs.js')
   const earlyModelFlag = eagerParseCliFlag('--model')
 
-  // Print the gradient startup screen before the Ink UI loads
-  const { printStartupScreen } = await import('../components/StartupScreen.js')
-  printStartupScreen(earlyModelFlag)
+  // Print the gradient startup screen before the Ink UI loads.
+  // Skipped in council mode so launches drop straight into the session-view
+  // chrome instead of the openclaude welcome ASCII. Override with
+  // COUNCIL_SHOW_BANNER=1 if you want it back.
+  if (!process.env.CLAUDE_CODE_COUNCIL_MODE || process.env.COUNCIL_SHOW_BANNER) {
+    const { printStartupScreen } = await import('../components/StartupScreen.js')
+    printStartupScreen(earlyModelFlag)
+  }
 
   // For all other paths, load the startup profiler
   const {

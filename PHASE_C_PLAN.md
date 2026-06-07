@@ -404,3 +404,39 @@ REPL.tsx restructured: CouncilSessionScreen is now the outermost layout always (
 User feedback after smoke: command pane spanning full screen width felt wrong against the narrow voice/status columns on either side. Aligned the command pane with the chat/voice-output center area by adding `marginLeft = VOICE_LIST_WIDTH` and `marginRight = STATUS_WIDTH` at wide widths. The pane now sits "under" the center column rather than spanning the full screen. Collapsed narrow layout (<120 cols) keeps full width since there's no voice list to align to.
 
 One-line edit to `CouncilSessionScreen.tsx`.
+
+## 18. C.3.2 status — partial (height + word wrap shipped)
+
+User feedback after C.3.1: "reduce the height of the command panel as well then move to word wrap." Two changes landed together.
+
+### Height reduction — StatusBar removed
+
+`src/screens/REPL.tsx`:
+- Removed `<StatusBar isLoading=... />` from the bottom slot at line ~4699. Its info (cost / elapsed / agent count) duplicated SessionStatus in the right pane, which is always visible. The bar was contributing to the command pane's vertical footprint with redundant data.
+- Dropped the now-unused `import { StatusBar } from '../components/StatusBar.js'` at line 24.
+
+This shrinks the command pane by ~2 rows (border + StatusBar line). The `StatusBar.tsx` file itself stays in the tree — it's still used elsewhere conceptually (its width-responsive logic is reference material for future status display work). Could be deleted in a P3 cleanup if no other callers emerge.
+
+### Word wrap — useEffectiveTerminalSize migration
+
+The load-bearing fix for long chat lines overflowing into the voice-output sub-pane during active sessions.
+
+`src/components/Messages.tsx`:
+- Swapped `useTerminalSize()` → `useEffectiveTerminalSize()` (single-line change at line ~377).
+- Effect propagates through props: Messages reads `columns`, passes it to `MessageRow`, `Divider`, `VirtualMessageList`. All downstream rendering wraps to the chat-sub-pane width when inside `ChatPane`'s `EffectiveTerminalSizeProvider`, falls through to real terminal columns elsewhere (e.g., the transcript view at REPL line ~4527 doesn't have a provider, gets real cols).
+
+`src/components/MarkdownTable.tsx`:
+- Same one-line swap. Tables in assistant responses are common and were the second-most-likely source of width overflow.
+
+Other chat-tree consumers of `useTerminalSize` exist (`HistorySearchDialog`, `MessageSelector`, `TaskListV2`, `LogSelector`, `BackgroundTasksDialog`, `Stats`, `PromptInputFooterSuggestions`) but they're modal/dialog-like — appear less commonly during normal chat. Migrate in follow-up commits if user reports overflow in any of them.
+
+`FullscreenLayout.tsx` keeps `useTerminalSize` deliberately — it's the screen-level layout and legitimately needs the real terminal columns (e.g., the modal divider character that does `"▔".repeat(columns)`).
+
+**Verification**: `bun run build` clean. `useEffectiveTerminalSize` tests 4/4. The provider/consumer plumbing was validated in C.1's gate; this migration just adds consumers.
+
+**Effort**: ~25 min actual (budget ~3h for full C.3.2). Word wrap turned out to be 2 single-line swaps because the hook-pattern migration is minimal.
+
+**Still in C.3.2 (not yet done)**:
+- **Modal positioning** — `/theme`, `/spend` etc. modals still overlay only the chat sub-pane. Fix: add `overlayContent` slot to CouncilSessionScreen and route the existing FullscreenLayout `modal` prop there with absolute positioning relative to the outer container.
+
+**Effort delta**: ~25 min for the modal slot still pending. Total C.3 (a + 3.1 + 3.2 partial) at ~95 min; budget was 7–9h.

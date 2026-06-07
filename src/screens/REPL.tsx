@@ -21,7 +21,6 @@ import { Box, Text, useStdin, useTheme, useTerminalFocus, useTerminalTitle, useT
 import type { TabStatusKind } from '../ink/hooks/use-tab-status.js';
 import { CostThresholdDialog } from '../components/CostThresholdDialog.js';
 import { IdleReturnDialog } from '../components/IdleReturnDialog.js';
-import { StatusBar } from '../components/StatusBar.js';
 import { CouncilSessionScreen } from '../components/CouncilSession/index.js';
 import { useSessionState } from '../hooks/useSessionState.js';
 import * as React from 'react';
@@ -4696,7 +4695,10 @@ export function REPL({
       } promptContent={<Box flexDirection={isBuddyEnabled() && companionNarrow ? 'column' : 'row'} width="100%" alignItems={isBuddyEnabled() && companionNarrow ? undefined : 'flex-end'}>
         {isBuddyEnabled() && companionNarrow && isFullscreenEnvEnabled() && companionVisible ? <CompanionSprite /> : null}
         <Box flexDirection="column" flexGrow={1}>
-          <StatusBar isLoading={isLoading} loadingStartMs={loadingStartTimeRef.current} pausedMs={totalPausedMsRef.current} pauseStartMs={pauseStartTimeRef.current} runningAgentCount={inProgressToolUseIDs.size} />
+          {/* StatusBar (Phase 3a) removed in C.3.2 — its cost / elapsed /
+              agent-count info is now shown in the SessionStatus right
+              pane, which is always visible. The bar was visual redundancy
+              + contributing to the command pane's height. */}
           {permissionStickyFooter}
           {/* Immediate local-jsx commands (/btw, /sandbox, /assistant,
                   /issue) render here, NOT inside scrollable. They stay mounted

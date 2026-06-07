@@ -398,3 +398,9 @@ REPL.tsx restructured: CouncilSessionScreen is now the outermost layout always (
 **Effort**: ~35 min actual (budget 4–5h for C.3 part 1). Below estimate because the JSX surgery turned out to be three precise edits rather than a sprawling rewrite — the existing closing `</Box>} />` worked verbatim for the new structure due to balanced bracket arithmetic.
 
 **Next**: C.3.2 — migrate Messages-tree word-wrap to `useEffectiveTerminalSize`, add overlayContent slot for proper modal positioning, remove StatusBar duplication, and live-smoke the integrated screen.
+
+### C.3.1 polish — command pane alignment (user feedback 2026-06-07)
+
+User feedback after smoke: command pane spanning full screen width felt wrong against the narrow voice/status columns on either side. Aligned the command pane with the chat/voice-output center area by adding `marginLeft = VOICE_LIST_WIDTH` and `marginRight = STATUS_WIDTH` at wide widths. The pane now sits "under" the center column rather than spanning the full screen. Collapsed narrow layout (<120 cols) keeps full width since there's no voice list to align to.
+
+One-line edit to `CouncilSessionScreen.tsx`.

@@ -317,7 +317,14 @@ export function CouncilSessionScreen({
           </Box>
         </Box>
       )}
+      {/* Command pane visually aligns with the chat/voice-output area:
+          left margin = voice list column width, right margin = status
+          pane width. So it sits "under" the center column rather than
+          spanning the full screen. Only at wide widths; the collapsed
+          narrow layout has no voice list to align to. */}
       <Box
+        marginLeft={isWide ? VOICE_LIST_WIDTH : 0}
+        marginRight={isWide ? STATUS_WIDTH : 0}
         borderStyle="round"
         borderColor={ACCENT}
         backgroundColor={BG}

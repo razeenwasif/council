@@ -1214,7 +1214,9 @@ export function REPL({
     // them. lastSubmittedPaneRef is set by onSubmit at routing time;
     // subsequent assistant / tool / system messages in the same exchange
     // inherit that pane. Untagged historic messages default to council
-    // (matches pre-Phase-3c behavior). Ref-based, no re-render.
+    // (matches pre-Phase-3c behavior). WeakMap keyed on the message
+    // object itself so types without a uuid (system / progress / hook
+    // result / etc.) still get tagged.
     if (next.length > prev.length) {
       const delta = next.length - prev.length;
       const added =
@@ -1222,8 +1224,8 @@ export function REPL({
           ? next.slice(-delta)
           : next.slice(0, delta);
       for (const m of added) {
-        if (m?.uuid && !messagePaneRef.current.has(m.uuid)) {
-          messagePaneRef.current.set(m.uuid, lastSubmittedPaneRef.current);
+        if (m && typeof m === 'object' && !messagePaneRef.current.has(m)) {
+          messagePaneRef.current.set(m, lastSubmittedPaneRef.current);
         }
       }
     }
@@ -1414,13 +1416,19 @@ export function REPL({
   const [focusedPane, setFocusedPane] = useState<'council' | 'research'>('council');
   const [unfocusedDraft, setUnfocusedDraft] = useState<string>('');
   // Phase 3c (2026-06-07): per-pane scrollback. messagePaneRef tags
-  // each message UUID with the pane that owns it; lastSubmittedPaneRef
+  // each message with the pane that owns it; lastSubmittedPaneRef
   // tracks which pane the most recent submission belonged to. New
   // messages without an explicit tag inherit lastSubmittedPaneRef.
   // Filter at render: displayedMessages is then narrowed to the focused
   // pane (with untagged messages defaulting to council — the original
   // single-pane behavior).
-  const messagePaneRef = useRef<Map<string, 'council' | 'research'>>(new Map());
+  //
+  // Implementation note (2026-06-07 fix): switched from
+  // `Map<uuid, pane>` to `WeakMap<messageObject, pane>` so message types
+  // that don't carry a uuid (system, progress, hook result, etc.) still
+  // get tagged. The UUID-keyed Map silently passed those through the
+  // filter, leaving them visible in every pane.
+  const messagePaneRef = useRef<WeakMap<object, 'council' | 'research'>>(new WeakMap());
   const lastSubmittedPaneRef = useRef<'council' | 'research'>('council');
   const [inputMode, setInputMode] = useState<PromptInputMode>('prompt');
   const [stashedPrompt, setStashedPrompt] = useState<{
@@ -3266,30 +3274,32 @@ export function REPL({
   }, options?: {
     fromKeybinding?: boolean;
   }) => {
-    // Phase 3a dual-pane: pane-aware submit routing. Plain-text
-    // submissions in the council pane auto-prepend `/council run ` (the
-    // `run` subcommand dispatches the deterministic orchestrator on the
-    // given prompt). Research pane auto-prepends `/discover ` (which
-    // takes the prompt directly via parseDiscoverArgs). Explicit slash
-    // commands (input starting with `/`) bypass this so power users can
-    // still invoke any command (/help, /theme, /sandbox, etc.)
-    // regardless of focus. Speculation-accept path is left alone — the
-    // speculation pre-flight already chose what to dispatch.
-    if (
-      isFullscreenEnvEnabled() &&
-      !speculationAccept &&
-      input.trim().length > 0 &&
-      !input.trim().startsWith('/')
-    ) {
-      const slashCommand = focusedPane === 'council' ? '/council run' : '/discover';
-      input = `${slashCommand} ${input.trim()}`;
-    }
-
-    // Phase 3c: record which pane this submission belongs to. The
-    // useEffect that watches `messages.length` will tag all subsequently
-    // appended messages with this pane until the next submission.
+    // Phase 3c: record which pane this submission belongs to so
+    // subsequently-appended messages get tagged in setMessages. Tag is
+    // derived from the ORCHESTRATOR that runs, not the focused pane at
+    // submit time, so an explicit `/council run X` typed while focused
+    // on research still lands in the council pane.
+    // - `/council ...` → 'council' (council orchestrator owns the
+    //   exchange, regardless of where it was launched from)
+    // - `/discover ...` → 'research' (discover/debate orchestrator)
+    // - plain text or other slash commands → focusedPane (these are
+    //   regular chats / UI commands belonging to whatever workspace
+    //   the user was in)
+    //
+    // Phase 3a auto-routing (plain text → `/council run X` /
+    // `/discover X`) was REVERTED 2026-06-07 — invoking the full
+    // 7-agent council orchestrator for trivial inputs like "hi" was
+    // wasting minutes of dispatch time. Plain text now stays plain
+    // text → normal Claude chat. Council / discover are invoked
+    // deliberately via slash command.
     if (isFullscreenEnvEnabled() && !speculationAccept) {
-      lastSubmittedPaneRef.current = focusedPane;
+      const trimmed = input.trim();
+      const submissionPane: 'council' | 'research' = trimmed.startsWith('/council')
+        ? 'council'
+        : trimmed.startsWith('/discover')
+          ? 'research'
+          : focusedPane;
+      lastSubmittedPaneRef.current = submissionPane;
     }
 
     // Re-pin scroll to bottom on submit so the user always sees the new
@@ -4711,9 +4721,11 @@ export function REPL({
     if (viewedAgentTask) return allDisplayedMessages;
     if (!isFullscreenEnvEnabled()) return allDisplayedMessages;
     return allDisplayedMessages.filter((m: MessageType) => {
-      const uuid = m?.uuid;
-      if (!uuid) return true;
-      const tag = messagePaneRef.current.get(uuid) ?? 'council';
+      if (!m || typeof m !== 'object') return true;
+      // Object-identity lookup via WeakMap so messages without a uuid
+      // still resolve to their tag. Untagged historic messages default
+      // to 'council' (matches pre-Phase-3c single-pane behavior).
+      const tag = messagePaneRef.current.get(m) ?? 'council';
       return tag === focusedPane;
     });
   })();

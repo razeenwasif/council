@@ -447,7 +447,7 @@ Phasing:
 |------|-------|--------|
 | **1 — Layout scaffold** | Center splits into council pane (chat + the single existing `PromptInput`) and research pane (placeholder). Bottom command pane removed at idle, preserved during active session for compatibility. Visual change only. | ✓ shipped |
 | **2 — Per-pane drafts + `Alt+1` / `Alt+2` focus** | Single mounted `PromptInput` (architectural pragmatism — splitting REPL's dense `promptContent` JSX into two real instances was a major refactor with marginal user-visible benefit). REPL holds two drafts; `Alt+1`/`Alt+2` swap which draft is live and where the input renders. Focused pane gets the accent border; unfocused pane shows a ghost preview of its draft. | ✓ shipped |
-| **3a — Pane-aware submit routing** | Plain-text submits in the council pane auto-prepend `/council `; research pane auto-prepends `/discover `. Explicit slash commands bypass. | ✓ shipped |
+| **3a — Pane-aware submit routing** | ~~Plain-text submits in the council pane auto-prepend `/council run `; research pane auto-prepends `/discover `.~~ **REVERTED 2026-06-07**: the heavy 7-agent council orchestrator fired for trivial inputs like "hi", wasting minutes per round. Plain text now goes to normal Claude chat (fast); council/discover orchestrators run only when explicitly invoked. Pane scrollback tagging still derives from the orchestrator: `/council` → council, `/discover` → research, anything else (plain text, /theme, /help) → focused pane. | ↩ reverted |
 | **3b — Voice-output folds into matching pane** | Active session's `StagePane` content renders inside the pane whose orchestrator is running (instead of splitting the entire center). Both idle and active states use the same dual `WorkspacePane` layout. Bottom command pane removed entirely. | ✓ shipped |
 | **3c — Per-pane scrollbacks** | Each pane filters to its own message origin. Switching panes shows only that pane's history. Tag at `setMessages` time using a UUID → pane Map; filter `displayedMessages` by `focusedPane`. | ✓ shipped |
 | **4 — Combined status + "research" label** | Status sums both panes. Surface "research" instead of "discover" in the UI. | pending |
@@ -465,11 +465,10 @@ Phasing:
 - Why single `PromptInput`, not two: the REPL's `promptContent` slot is a dense ~120-line JSX tree containing `PromptInput`, permission dialogs, focused input dialogs, queued commands, the companion sprite, etc. Splitting it into two parallel instances would require duplicating that whole subtree and threading per-pane refs, abort controllers, and modal state. The single-mounted approach gives functionally identical UX (drafts preserved, both panes accept input by focusing first) at a fraction of the refactor cost.
 - Known gap (Phase 3c work): chat scrollback is still shared — only the focused pane renders it. When the user switches to research and back to council, the same scrollback reappears. Per-pane message threads + orchestrator routing in Phase 3 will fix this and also fold the active-session voice-output split into the focused pane.
 
-**Phase 3a implementation notes** (this commit):
-- `REPL.tsx` `onSubmit`: at the top of the callback (before any other dispatch), if the input is non-empty, doesn't start with `/`, and isn't a speculation-accept, reassigns `input` to `${slashCommand} ${input.trim()}` where `slashCommand` is `/council run` (note the `run` subcommand — `/council` alone parses the first word as a subcommand) or `/discover` based on `focusedPane`. The rest of `onSubmit` is untouched — the existing `input.trim().startsWith('/')` branch (the standard slash-command dispatch) catches the routed value naturally.
-- Gated on `isFullscreenEnvEnabled()` so non-fullscreen REPL behavior is unchanged.
-- `focusedPane` added to the `onSubmit` useCallback dependency array.
-- Power users can still invoke any command (`/help`, `/sandbox`, `/theme`, etc.) by typing it explicitly — only plain text gets auto-routed.
+**Phase 3a implementation notes** (REVERTED):
+- Originally: `REPL.tsx` `onSubmit` auto-prepended `/council run ` or `/discover ` to plain text based on `focusedPane`.
+- Killed because invoking the heavy 7-agent council orchestrator (or 4-agent discover orchestrator) for trivial inputs like "hi" was burning minutes per turn under the synchronous-agent-dispatch model. User mental model was always closer to "panes are independent workspaces" than "panes are orchestrator gateways"; explicit slash commands are the right invocation surface.
+- The pane-tag derivation logic is the only thing that survived: `/council ...` → council, `/discover ...` → research, anything else (plain text or other slash commands) → focused pane. This still feeds `lastSubmittedPaneRef` so Phase 3c's per-pane scrollback filter works correctly.
 
 **Phase 3b implementation notes** (this commit):
 - `CouncilSessionScreen.tsx`: removed the `isSessionActive ? splitCenterLayout : dualPaneLayout` branch. Both states now render the same `WorkspacePane` dual-pane layout.
@@ -485,7 +484,19 @@ Phasing:
 - `setMessages` (the wrapped version): after computing `next`, if any messages were appended, iterate and write `lastSubmittedPaneRef.current` into `messagePaneRef` for each new UUID. Idempotent — already-tagged UUIDs aren't overwritten.
 - `displayedMessages` computation: when fullscreen-enabled and not viewing an agent task, filter by `messagePaneRef.get(uuid) ?? 'council' === focusedPane`. Untagged messages default to council so pre-Phase-3c conversations remain visible in the council pane.
 - No schema changes to the Message type (which is typed as `any` in the stub `src/types/message.ts`). Side-channel Map keeps the tagging logic contained to REPL.tsx.
-- Edge case: when the user submits in research → council orchestrator (via explicit `/council run`) the messages get tagged 'research' (the focused pane at submit time). This is intentional — the user chose to dispatch council from their research workspace, so the conversation belongs there. Auto-routing of plain text keeps council prompts in council pane.
+- Edge case fix (2026-06-07 same day): tag is derived from the ORCHESTRATOR that runs, not the focused pane at submit time. `/council ...` always tags 'council'; `/discover ...` always tags 'research'; everything else (/theme, /help, etc.) tags `focusedPane`. This means an explicit `/council run X` typed while focused on research still lands in the council pane — the user expects "council pane = council orchestrator history," not "council pane = stuff I happened to type while in council." Initial implementation tagged by focused pane and produced the screenshot-reported bug where both exchanges showed in the research pane.
+- WeakMap switch (2026-06-07 same day): the original `Map<uuid, pane>` only tagged messages that carried a `uuid`. System messages, progress messages, hook-result messages, and similar synthetic types are produced without a `uuid` and silently fell through the filter — showing up in every pane regardless of which one launched them. Switched to `WeakMap<messageObject, pane>` keyed on object identity so EVERY appended message gets a tag. User reported the bug as: "ran council in council pane normally, switched to research mid-run, the council exchange got carried over." Late-arriving streamed chunks (no uuid) were the leak.
+
+### Left-column system monitor (2026-06-07)
+
+After Phase 3c shipped, the empty space below the discover voice list became visible. User asked for a compact system monitor there — CPU, RAM, GPU, disk I/O, network I/O, and this Node process's own resource use.
+
+Implementation:
+- `src/utils/systemStats.ts`: Linux-first reader (the user's primary deployment is WSL2). Pulls CPU from `/proc/stat` (delta-based %), RAM from `/proc/meminfo` (using `MemAvailable` for accuracy), GPU from `nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits` (1.5s timeout, graceful fallback), disk from `/proc/diskstats` (whole-disk counters only, skipping loop/ram/per-partition entries), network from `/proc/net/dev` (skipping loopback), and this process via `process.cpuUsage()` + `process.memoryUsage().rss`. Each reader is independently try/catched — a missing source never breaks the others.
+- `src/components/CouncilSession/SystemMonitor.tsx`: Ink component, polls every 2s, renders compact bars (6 chars wide using `█`/`░`). Color-codes %: green/default under 60, yellow at 60-85, red above 85. Compact number formatting (`fmtRate` for MB/s, `fmtMB` for memory) keeps each line inside the ~18 inner cols of the `VOICE_LIST_WIDTH=22` pane.
+- `CouncilSessionScreen.tsx`: rendered in the left column with `flexGrow={1}` so it absorbs whatever vertical space is left below the two voice panes. Same accent border + BG as the other panes.
+
+Smoke test on user's WSL2 confirmed nvidia-smi pass-through works and all six stats stream cleanly.
 
 ## 13. What's deferred to Phase C / D
 

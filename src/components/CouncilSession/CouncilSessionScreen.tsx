@@ -8,6 +8,7 @@ import { EffectiveTerminalSizeProvider } from '../../hooks/useEffectiveTerminalS
 import { SessionCommand } from './SessionCommand.js'
 import { SessionStatus } from './SessionStatus.js'
 import { StagePane } from './StagePane.js'
+import { SystemMonitor } from './SystemMonitor.js'
 import {
   COUNCIL_VOICE_ROLES,
   DISCOVER_VOICE_ROLES,
@@ -259,6 +260,21 @@ export function CouncilSessionScreen({
                 availableColumns={paneInner(VOICE_LIST_WIDTH)}
                 mode="discover"
               />
+            </Box>
+            {/* System monitor — fills the dead space below the discover
+                voice list. Polls every 2s in its own useEffect; the
+                first sample renders ~immediately with zero rates. */}
+            <Box
+              flexGrow={1}
+              flexShrink={1}
+              borderStyle="round"
+              borderColor={ACCENT}
+              backgroundColor={BG}
+              flexDirection="column"
+              borderText={paneTitle('system')}
+              overflow="hidden"
+            >
+              <SystemMonitor availableColumns={paneInner(VOICE_LIST_WIDTH)} />
             </Box>
           </Box>
           {/* Center: dual WorkspacePane layout. Each pane is a complete

@@ -52,7 +52,11 @@ export function AlternateScreen(t0) {
       return () => {
         ink?.setAltScreenActive(false);
         ink?.clearTextSelection();
-        writeRaw((mouseTracking ? DISABLE_MOUSE_TRACKING : "") + EXIT_ALT_SCREEN);
+        // Clear the alt buffer before swapping back to main. On Windows
+        // Terminal and some other emulators, alt-screen content gets
+        // pushed into scrollback at exit; clearing first prevents the
+        // council UI from polluting the user's shell history.
+        writeRaw((mouseTracking ? DISABLE_MOUSE_TRACKING : "") + "\x1B[2J\x1B[H" + EXIT_ALT_SCREEN);
       };
     };
     t3 = [writeRaw, mouseTracking];

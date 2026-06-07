@@ -423,6 +423,40 @@ Council voice colors: architect/executor yellow (Anthropic), implementer cyan (D
 
 Discover voice colors: hypothesizer yellow, empiricist blue, devils_advocate purple, methodologist red, synthesist blue.
 
+### Post-ship polish (2026-06-07)
+
+User smoke surfaced two issues after the Phase D ship:
+
+1. **Status pane squished when chat content was long.** Fixed-width sibling boxes (`VoiceList`, `StagePane`, status pane) default to `flexShrink: 1`, so chat content could push the layout to overflow and compress the fixed-width panes — visibly clipping the status text against its border. Fix: explicit `flexShrink={0}` on every fixed-width child of the main row layout. The chat box (only true flex grower) absorbs all excess.
+
+2. **Council UI lingered in shell scrollback after exit.** Standard alt-screen exit (DEC 1049 `\x1b[?1049l`) restores the main buffer, but Windows Terminal (the user's emulator) — and some other modern emulators — push the *current* alt-buffer contents into the main scrollback at exit. Net effect: the council layout shows up in the shell's scroll history after `/exit`. Fix: write `\x1b[2J\x1b[H` (clear viewport + home) immediately before `EXIT_ALT_SCREEN` in `AlternateScreen`'s cleanup, so the alt buffer is empty when it gets pushed to scrollback. Applies process-wide, not council-specific — same fix benefits the standard REPL.
+
+### Dual-pane center — Phase 1 layout scaffold (2026-06-07)
+
+User asked to restructure the center into two side-by-side **workspace panes** (council + research, the latter being the new UI label for what the code still calls "discover"). The bottom command pane goes away; the `PromptInput` lives inside each workspace pane.
+
+Locked-in design decisions (user-picked):
+- **Pane switch key**: `Alt+1` (council) / `Alt+2` (research). Initial pick was `Ctrl+Tab` but every terminal emulator (Windows Terminal, iTerm, kitty, gnome-terminal) captures it for tab switching, so the app never receives the keypress. `Alt+number` is tmux/Vim/IDE convention, almost never captured by terminals, and scales if we add a third pane later.
+- **Rename scope**: UI label only — slash command stays `/discover`, files stay `debateSpawn.ts`, types stay `kind: 'discover'`. Cheap to revert.
+- **Status pane scope**: combined view (sums cost + tokens across both panes).
+- **Input complexity**: full `PromptInput` in both panes (highest fidelity, costs the most state-refactor work).
+
+Phasing:
+
+| Phase | Scope | Effort |
+|------|-------|--------|
+| **1 — Layout scaffold** | Center splits into council pane (chat + the single existing `PromptInput`) and research pane (placeholder). Bottom command pane removed at idle, preserved during active session for compatibility. Visual change only. | ✓ shipped |
+| **2 — Per-pane drafts + `Ctrl+Tab` focus** | Two real `PromptInput` instances, per-pane draft state, focused pane gets accent border, `Ctrl+Tab` toggles which one receives keystrokes. | pending |
+| **3 — Per-pane scrollbacks + orchestrator routing** | Each pane's submit routes to its orchestrator (council vs discover). Independent message threads. Active session split-center (chat + voice-output) folds into the relevant pane. | pending |
+| **4 — Combined status + "research" label** | Status sums both panes. Surface "research" instead of "discover" in the UI. | pending |
+
+**Phase 1 implementation notes** (this commit):
+- `CouncilSessionScreen.tsx`: idle wide-mode center renders two side-by-side `Box`es (`councilPaneOuter` and `researchPaneOuter`, each ~half of `centerOuter`).
+- Council pane: `ChatPane` (grows) + `promptContent` slot (shrinks). The `promptContent` slot is wrapped in its own `EffectiveTerminalSizeProvider` so `PromptInput`'s wrap math sees the council-pane inner width instead of the full terminal width — same primitive as `ChatPane`'s existing provider.
+- Research pane: static placeholder text ("research pane — coming in Phase 2", with a "ctrl-tab to focus" hint).
+- Bottom command pane: conditioned on `isSessionActive` — preserved during sessions (so the existing active-session split layout keeps working), removed at idle.
+- Active-session layout (chat + voice-output split) is intentionally unchanged in Phase 1 — Phase 3 folds it into the per-pane model.
+
 ## 13. What's deferred to Phase C / D
 
 **Note (2026-06-07)**: Phase C scope was reframed mid-Phase-B based on user feedback — the session view becomes the *outermost layout always*, not just a session-mode replacement. See `PHASE_C_PLAN.md` for the dedicated plan including layout decisions (stacked-left voice panes, split center, cumulative idle status).

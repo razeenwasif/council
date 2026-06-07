@@ -4,6 +4,7 @@ import type { RefObject } from 'react'
 import type { ScrollBoxHandle } from '../../ink/components/ScrollBox.js'
 import { ModalContext } from '../../context/modalContext.js'
 import { ChatPane } from './ChatPane.js'
+import { EffectiveTerminalSizeProvider } from '../../hooks/useEffectiveTerminalSize.js'
 import { SessionCommand } from './SessionCommand.js'
 import { SessionStatus } from './SessionStatus.js'
 import { StagePane } from './StagePane.js'
@@ -163,7 +164,11 @@ export function CouncilSessionScreen({
     ? session.voices.filter(v => v.status === 'running').map(v => v.role)
     : []
   // Phase C.2b: center is split into chat + voice-output sub-panes when
-  // a session is active. At idle, chat takes the full center width.
+  // a session is active. At idle (Phase D-post-smoke 2026-06-07): center
+  // splits into two workspace panes — council (left) hosts the live
+  // chat scrollback + PromptInput; research (right) is currently a
+  // placeholder, will get its own input + scrollback in Phase 2 of the
+  // dual-pane work.
   const isSessionActive = session !== null
   const voiceOutputTitle = focusedVoice
     ? `current — ${focusedVoice.role} (${focusedVoice.model})`
@@ -172,6 +177,10 @@ export function CouncilSessionScreen({
   // round border). chat gets floor; voice-output gets the remainder.
   const chatOuterActive = Math.floor(centerOuter / 2)
   const voiceOutputOuter = centerOuter - chatOuterActive
+  // Idle dual-pane split: council pane (left) gets floor; research pane
+  // (right) gets the remainder.
+  const councilPaneOuter = Math.floor(centerOuter / 2)
+  const researchPaneOuter = centerOuter - councilPaneOuter
 
   // Idle: no elapsed timer + cumulative cost (handled by SessionStatus
   // when status.startMs === 0). At idle we synthesize a status block.
@@ -207,7 +216,7 @@ export function CouncilSessionScreen({
           {/* Left column: stacked council + discover voice panes. Both
               always visible per §9 Q3 of PHASE_C_PLAN. The active mode's
               pane shows live status; the other stays in pending. */}
-          <Box width={VOICE_LIST_WIDTH} flexDirection="column">
+          <Box width={VOICE_LIST_WIDTH} flexShrink={0} flexDirection="column">
             <Box
               borderStyle="round"
               borderColor={ACCENT}
@@ -246,6 +255,7 @@ export function CouncilSessionScreen({
             <Box flexDirection="row" flexGrow={1}>
               <Box
                 width={chatOuterActive}
+                flexShrink={0}
                 borderStyle="round"
                 borderColor={ACCENT}
                 backgroundColor={BG}
@@ -259,6 +269,7 @@ export function CouncilSessionScreen({
               </Box>
               <Box
                 width={voiceOutputOuter}
+                flexShrink={0}
                 borderStyle="round"
                 borderColor={ACCENT}
                 backgroundColor={BG}
@@ -275,22 +286,74 @@ export function CouncilSessionScreen({
               </Box>
             </Box>
           ) : (
-            <Box
-              flexGrow={1}
-              borderStyle="round"
-              borderColor={ACCENT}
-              backgroundColor={BG}
-              flexDirection="column"
-              borderText={paneTitle('chat')}
-            >
-              <ChatPane
-                availableColumns={centerOuter}
-                chatContent={chatContent}
-              />
+            <Box flexDirection="row" flexGrow={1}>
+              {/* Council workspace pane — chat scrollback on top, the
+                  REPL's PromptInput at the bottom. Phase 1: this is the
+                  only "live" pane; the research pane is a placeholder.
+                  Phase 2 will give each pane an independent PromptInput
+                  + draft state. */}
+              <Box
+                width={councilPaneOuter}
+                flexShrink={0}
+                borderStyle="round"
+                borderColor={ACCENT}
+                backgroundColor={BG}
+                flexDirection="column"
+                borderText={paneTitle('council')}
+              >
+                <Box flexGrow={1} flexDirection="column">
+                  <ChatPane
+                    availableColumns={councilPaneOuter}
+                    chatContent={chatContent}
+                  />
+                </Box>
+                {promptContent ? (
+                  <Box flexShrink={0} flexDirection="column">
+                    {/* PromptInput uses useEffectiveTerminalSize for its
+                        wrap math. Wrap it so its width math is bounded by
+                        the council pane's inner width, not the real
+                        terminal width. */}
+                    <EffectiveTerminalSizeProvider columns={paneInner(councilPaneOuter)}>
+                      {promptContent}
+                    </EffectiveTerminalSizeProvider>
+                  </Box>
+                ) : (
+                  <Box flexShrink={0} flexDirection="column" paddingX={1}>
+                    <SessionCommand
+                      value={commandValue}
+                      availableColumns={paneInner(councilPaneOuter)}
+                    />
+                  </Box>
+                )}
+              </Box>
+              {/* Research workspace pane — placeholder until Phase 2
+                  wires its own PromptInput + per-pane scrollback. */}
+              <Box
+                width={researchPaneOuter}
+                flexShrink={0}
+                borderStyle="round"
+                borderColor={ACCENT}
+                backgroundColor={BG}
+                flexDirection="column"
+                borderText={paneTitle('research')}
+              >
+                <Box flexGrow={1} flexDirection="column" paddingX={1} paddingY={1}>
+                  <Text dimColor italic>
+                    [research pane — coming in Phase 2]
+                  </Text>
+                  <Box marginTop={1}>
+                    <Text dimColor>
+                      will host its own input + scrollback;
+                    </Text>
+                  </Box>
+                  <Text dimColor>alt-2 to focus, type a research question</Text>
+                </Box>
+              </Box>
             </Box>
           )}
           <Box
             width={STATUS_WIDTH}
+            flexShrink={0}
             borderStyle="round"
             borderColor={ACCENT}
             backgroundColor={BG}
@@ -354,27 +417,34 @@ export function CouncilSessionScreen({
           left margin = voice list column width, right margin = status
           pane width. So it sits "under" the center column rather than
           spanning the full screen. Only at wide widths; the collapsed
-          narrow layout has no voice list to align to. */}
-      <Box
-        marginLeft={isWide ? VOICE_LIST_WIDTH : 0}
-        marginRight={isWide ? STATUS_WIDTH : 0}
-        borderStyle="round"
-        borderColor={ACCENT}
-        backgroundColor={BG}
-        flexDirection="column"
-        borderText={paneTitle('command')}
-      >
-        {promptContent ? (
-          // REPL slot — its PromptInput already manages its own input.
-          // No EffectiveTerminalSizeProvider here because the prompt is
-          // a single line; horizontal width matters for input wrap but
-          // PromptInput uses its own column-aware logic that respects
-          // the flex-allocated width.
-          promptContent
-        ) : (
-          <SessionCommand value={commandValue} availableColumns={paneInner(centerOuter)} />
-        )}
-      </Box>
+          narrow layout has no voice list to align to.
+
+          Phase 1 of dual-pane work (2026-06-07): at idle the PromptInput
+          lives inside the council workspace pane, so no bottom command
+          pane is rendered. During active sessions the bottom command
+          pane is preserved (Phase 3 will fold it into per-pane inputs). */}
+      {isSessionActive && (
+        <Box
+          marginLeft={isWide ? VOICE_LIST_WIDTH : 0}
+          marginRight={isWide ? STATUS_WIDTH : 0}
+          borderStyle="round"
+          borderColor={ACCENT}
+          backgroundColor={BG}
+          flexDirection="column"
+          borderText={paneTitle('command')}
+        >
+          {promptContent ? (
+            // REPL slot — its PromptInput already manages its own input.
+            // No EffectiveTerminalSizeProvider here because the prompt is
+            // a single line; horizontal width matters for input wrap but
+            // PromptInput uses its own column-aware logic that respects
+            // the flex-allocated width.
+            promptContent
+          ) : (
+            <SessionCommand value={commandValue} availableColumns={paneInner(centerOuter)} />
+          )}
+        </Box>
+      )}
       <HelpBar availableColumns={interiorWidth} />
       {/* Overlay slot — slash-command modals (/theme, /spend, /help)
           render absolute-positioned at the bottom of the OUTER screen.
@@ -491,7 +561,7 @@ function HelpBar({ availableColumns }: { availableColumns: number }): React.Reac
   return (
     <Box paddingX={1} width={availableColumns}>
       <Text dimColor>
-        ctrl-c cancel · esc background · tab switch voice · enter focus
+        ctrl-c cancel · esc background · alt-1/alt-2 switch pane · enter focus
       </Text>
     </Box>
   )

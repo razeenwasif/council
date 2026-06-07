@@ -477,6 +477,13 @@ Bumped pane widths in `CouncilSessionScreen.tsx`:
 
 Net effect on center pane at ≥120 cols: ~8 fewer cols for chat + voice output split. Still ample.
 
+### Post-Phase-D smoke (2026-06-07)
+
+Two more issues surfaced after the Phase D ship — both fixed:
+
+- **Status pane squished on chat input**: fixed-width siblings of the main row (`VoiceList`, `StagePane`, status pane, active-session chat box) inherited Yoga's default `flexShrink: 1`. Long chat content pushed total width past available cols and compressed the fixed-width panes — status text bled through the border. Added `flexShrink={0}` to all fixed-width row children in `CouncilSessionScreen.tsx`; only the idle-mode chat box keeps `flexGrow={1}` as the lone absorber.
+- **Council UI lingered in shell scrollback on exit**: alt-screen exit (`\x1b[?1049l`) restores the main buffer correctly, but Windows Terminal pushes the *current* alt-buffer state into scrollback at exit. Fix in `src/ink/components/AlternateScreen.tsx`: send `\x1b[2J\x1b[H` (clear + home) immediately before `EXIT_ALT_SCREEN` so what gets pushed to scrollback is an empty buffer. Process-wide (not council-specific) — same benefit applies to the standard REPL.
+
 **Next options**:
 - **Phase D** (per the original `COUNCIL_MODE_REDESIGN.md` §6 plan) — Tab to cycle focused voice, Esc to background sessions, per-voice colors via `vendorBadge`, true streaming via `onProgress`, real synthesizer/executor/review content in voice-output sub-pane.
 - **Cleanup tasks** — ✓ `StatusBar.tsx` and `StatusPane.tsx` deleted (commit forthcoming). `FullscreenLayout.tsx` reviewed and KEPT — heavily referenced by `Messages.tsx` (UnseenDivider type), `VirtualMessageList.tsx` (ScrollChromeContext), `CompanionSprite.tsx`, ink internals. `SessionCommand.tsx` reviewed and KEPT — used as a fallback in `CouncilSessionScreen.tsx` when `promptContent` is not provided (preview script path).

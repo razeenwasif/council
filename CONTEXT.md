@@ -67,6 +67,7 @@ Authoritative references for different needs:
 | Phase C design (session view as default layout) | `PHASE_C_PLAN.md` |
 | Session view components | `src/components/CouncilSession/`, `scripts/preview-council-mode.tsx` |
 | Session bus + state hook | `src/coordinator/council/sessionBus.ts`, `src/hooks/useSessionState.ts` |
+| Effective terminal-size shim (Phase C primitive) | `src/hooks/useEffectiveTerminalSize.ts` |
 | Self-improving council telemetry plan | `TELEMETRY_PLAN.md` |
 
 ---
@@ -145,6 +146,11 @@ The paper repo exists because Overleaf's GitHub import counts files across the e
 7. **Don't push to `quant-specialist-paper:main` directly from outside the sync target.** Use `make sync-overleaf` from `Council:paper/`. Manual edits to the standalone repo will silently drift from `Council:paper/`.
 
 8. **Don't add `useTerminalSize()` calls inside `src/components/CouncilSession/*`.** Those components compute their layout from an explicit `availableColumns` prop passed by `CouncilSessionScreen`. Calling `useTerminalSize` inside any descendant breaks the multi-pane layout — that's the bug that killed Phase 3b of the original `TUI_REDESIGN`. See `COUNCIL_MODE_REDESIGN.md` §5 "Width handling" for the load-bearing reason.
+
+   **Choosing between `useTerminalSize` and `useEffectiveTerminalSize`** (Phase C addition):
+   - `useTerminalSize` → real terminal size. Use it at the screen root or anything painting backgrounds across the whole viewport.
+   - `useEffectiveTerminalSize` (in `src/hooks/useEffectiveTerminalSize.ts`) → respects an `EffectiveTerminalSizeProvider` ancestor when present, falls through to real terminal otherwise. Use it in components that may end up inside a flex-allocated sub-pane and need to wrap to that pane's width (`Messages`, `Markdown`, anything with column-clamped layout).
+   - Default for new chat-tree components: `useEffectiveTerminalSize`. The performance cost of the indirection is negligible; the cost of getting it wrong is the Phase 3b wrap bug.
 
 9. **Don't emit on the session bus from anywhere except `councilSpawn.ts` or `debateSpawn.ts`.** The bus has one canonical lifecycle: `session-start` → events → `session-end`. Random emissions from elsewhere will desync the React state with reality. If you need a new event type, add it to `sessionBus.ts`'s `SessionEvent` union and route it through the existing emit sites.
 

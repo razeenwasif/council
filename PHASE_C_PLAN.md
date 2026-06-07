@@ -289,4 +289,20 @@ These are all explicitly out of scope for Phase C. Discuss them if/when Phase C 
 
 Scope grew from ~360 LOC to ~500 LOC, timeline from 13–15h to 13–18h. Still feasible by week's end at ~3h/day.
 
-**Next step**: I start C.1 (the `useEffectiveTerminalSize` shim) on a new branch `feat/phase-c-session-default`. If the gate-test passes, continue to C.2a. If it fails, stop and reassess — only ~2h sunk.
+## 14. C.1 status — shipped
+
+Branch: `feat/phase-c-session-default` (off `feat/council-mode`).
+
+**Shipped**:
+- `src/hooks/useEffectiveTerminalSize.ts` — `EffectiveTerminalSizeProvider` + `useEffectiveTerminalSize` hook. Context-based override; falls through to real `useTerminalSize` when no provider in scope. Rows optional (defaults to real terminal rows).
+- `src/hooks/useEffectiveTerminalSize.test.tsx` — gate test, 4 cases:
+  - Without provider → real terminal size
+  - With provider → columns overridden
+  - With rows override → both fields overridden
+  - Nested providers → inner wins
+
+**Gate passed**: 4/4 tests green. Primitive works as designed.
+
+**Effort**: ~45 min actual (budget 1–2h). Below estimate because the hook pattern is simple and test scaffolding from existing tests (`useApiKeyVerification.test.tsx`) was reusable.
+
+**Next**: C.2a — stacked-left voice panes with idle pending rendering.

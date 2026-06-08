@@ -248,6 +248,8 @@ CSV at `/home/amaterasu/Research/phase1-sweep.csv`. Summary metrics from `bun sc
 
 **This routing change is the single highest-leverage outcome of tonight's session** — it converts the empirical sweep into a concrete production deployment improvement. Worth doing in a follow-up edit + the full `/discover` end-to-end re-test to confirm brief quality improves.
 
+**APPLIED 2026-06-08 (end of session)** — All 8 recommended routes shipped to `~/.openclaude/settings.json`. Active fleet during `/council` is now 6 distinct models (gemma4:e4b, phi4:14b, mistral-nemo, deepseek-r1, falcon3, mathstral). Verification step deferred to next session: run `/discover` + `/council` end-to-end on a fresh thesis-relevant prompt; if brief quality regresses on any route, revert that specific route and document the regression as a Phase 1 follow-up finding.
+
 ---
 
 ## What's missing (deferred to next sessions)

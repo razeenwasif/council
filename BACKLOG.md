@@ -345,17 +345,23 @@ Set `supportsTools: false` on the 5 known-bad models: `phi4:14b-council`, `maths
 
 **Why P2**: blocks classification of the most interesting Phase 1 failure mode (length-cap noncompliance). Currently we can detect cap-hit but can't say *what kind of failure* it was — that's the difference between "verbose model, recoverable via stricter cap" and "broken model, exclude from fleet." Both diagnoses feed the thesis methodology chapter directly.
 
-### Citation verification harness
+### ✓ Citation verification harness — SHIPPED 2026-06-09
+
+**Shipped** as `/verify-citations` slash command. Scope: arXiv IDs only (this iteration). Author-name confabulations (e.g. "Yang & Hodgkiasz, 2023" — actual case from the quantization-calibration brief) require a different lookup strategy and stay deferred to a v2.
+
+  - `src/commands/verify-citations/verify-citations.ts` — extracts arXiv IDs from a brief (regex `\b\d{4}\.\d{4,5}\b`), HEAD-checks each against `https://arxiv.org/abs/<id>` in parallel with a configurable timeout (default 5 s), flags any that 404 / 503 / time out.
+  - With no args: scans the most-recently-modified `.md` in `~/Research/debates/`. With a path arg: scans that file. `--timeout=<ms>` flag.
+  - Appends `citationsVerified: { id, url, status, resolves, checkedAt, errorMessage? }[]` to the matching record in `~/.openclaude/council-runs.jsonl` (match by `briefPath` — best-effort no-op if no match).
+  - Prints per-ID `[OK]` / `[FAIL]` summary to the REPL with the failure mode (HTTP code / timeout / error).
+
+**Deferred (P3 — v2 work)**:
+- Auto-trigger from session-end (currently manual `/verify-citations` invocation). Hook into the existing `councilTelemetryCollector` session-bus subscriber to fire after each `/discover` brief lands.
+- Auto-attach a `/verdict verify incorrect` when ≥1 ID fails to resolve.
+- Author/title verification — would catch the "Yang & Hodgkiasz" class of confabulation that arXiv-ID checks miss. Likely strategy: Semantic Scholar API by title hash, or arXiv search by author+year. Both have rate-limit considerations.
+
+### Original entry (kept for context):
 
 **Symptom**: even with arXiv MCP grounding the empiricist (when shipped), there's no automated check that the citations in a debate brief actually resolve. Prior runs have produced confident-sounding arXiv IDs that 404 — the model invented the ID from a plausible-looking date + index. A verifier loop catches these without any human read.
-
-**Work** (~2 h, depends on arXiv MCP being live first):
-1. After each `/discover` session-end, scan the brief + appendix for arXiv IDs via regex `\b\d{4}\.\d{4,5}\b`.
-2. Hit `https://arxiv.org/abs/<id>` for each (HEAD request, 5 s timeout); flag any that 404 or 503.
-3. Append `citationsVerified: { id: string; resolves: boolean; checkedAt: string }[]` to the telemetry record at `~/.openclaude/council-runs.jsonl`.
-4. Auto-attach a `/verdict verify incorrect "citations failed: <id1>, <id2>"` when ≥1 ID fails to resolve.
-
-**Why P2**: directly closes the "confident confabulation" failure mode. Strong thesis-methodology asset — turns a manual verification step into a deterministic check, exactly the kind of automation the paper argues for in its verification-layer claim.
 
 ### Benchmark / regression harness
 

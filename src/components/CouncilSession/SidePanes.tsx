@@ -157,8 +157,12 @@ export function SessionTasksPane({
         return order(a.status) - order(b.status)
       })
   const tail = sorted.slice(0, TASK_TAIL)
+  // Layout: hint at top so it's visible from the first frame. The
+  // earlier flexGrow-spacer-pin-to-bottom approach broke on first
+  // render — see ScratchpadPane for the same fix.
   return (
-    <Box paddingX={1} flexDirection="column" width={availableColumns} flexGrow={1}>
+    <Box paddingX={1} flexDirection="column" width={availableColumns}>
+      <Text dimColor italic>(assistant-managed)</Text>
       {empty ? (
         <Text dimColor italic>(no tasks yet)</Text>
       ) : (
@@ -186,12 +190,6 @@ export function SessionTasksPane({
           )}
         </>
       )}
-      {/* Persistent footer — clarifies the pane is populated by the
-          assistant's TaskCreate tool (no user-facing slash command). */}
-      <Box flexGrow={1} />
-      <Box marginTop={1}>
-        <Text dimColor italic>(assistant-managed)</Text>
-      </Box>
     </Box>
   )
 }

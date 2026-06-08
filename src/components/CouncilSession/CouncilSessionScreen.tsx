@@ -381,7 +381,6 @@ export function CouncilSessionScreen({
             <Box
               flexGrow={2}
               flexShrink={1}
-              flexBasis={0}
               borderStyle="round"
               borderColor={ACCENT}
               backgroundColor={BG}
@@ -398,7 +397,6 @@ export function CouncilSessionScreen({
             <Box
               flexGrow={1}
               flexShrink={1}
-              flexBasis={0}
               borderStyle="round"
               borderColor={ACCENT}
               backgroundColor={BG}
@@ -600,10 +598,17 @@ function ScratchpadPane({
   const notes = useScratchpad()
   // String literals (not &lt; entities) so the rendered text is `<text>`
   // rather than `&lt;text&gt;` — Ink doesn't decode HTML entities.
+  //
+  // Layout: hint at top so it's visible from the first frame. The
+  // earlier flexGrow-spacer-pin-to-bottom approach broke on first
+  // render because Yoga sometimes computes the inner spacer's height
+  // before the parent's flex allocation lands — content + hint
+  // collapsed off-screen until any state change forced a relayout.
   return (
-    <Box paddingX={1} flexDirection="column" width={availableColumns} flexGrow={1}>
+    <Box paddingX={1} flexDirection="column" width={availableColumns}>
+      <Text dimColor italic>{'/note <text>'} · clear · list</Text>
       {notes.length === 0 ? (
-        <Text dimColor italic>(empty — add with /note below)</Text>
+        <Text dimColor italic>(empty)</Text>
       ) : (
         notes.map((n, i) => (
           <Box key={i} flexDirection="row">
@@ -612,13 +617,6 @@ function ScratchpadPane({
           </Box>
         ))
       )}
-      {/* Persistent hint at the bottom so the slash-command surface
-          stays discoverable even after notes are pinned. */}
-      <Box flexGrow={1} />
-      <Box flexDirection="column" marginTop={1}>
-        <Text dimColor italic>{'/note <text>'} add</Text>
-        <Text dimColor italic>/note clear · /note list</Text>
-      </Box>
     </Box>
   )
 }

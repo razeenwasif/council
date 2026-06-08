@@ -375,6 +375,41 @@ Set `supportsTools: false` on the 5 known-bad models: `phi4:14b-council`, `maths
 
 **Why P2**: the thesis's evaluation chapter wants exactly this artifact — a deterministic, reproducible benchmark across prompt/model variants. Without it, claims about "routing X gives better briefs" remain vibes. The harness IS the evaluation methodology.
 
+### Local PDF cache + BGE-M3 semantic index for empiricist (RAG complement to arXiv MCP)
+
+**Symptom / motivation**: arXiv MCP gives the empiricist live search but no *persistent semantic memory*. Every `/discover` on a thesis-relevant prompt re-hits arxiv.org for the same papers — slow, rate-limited, and offline-fragile. Worse: there's no way for the empiricist to say "this prompt is similar to a paper I have already read carefully" because there's no local representation of what *has* been read. Today's failure mode (falcon-3 cited "Yang & Hodgkiasz, 2023" — fabricated authors) would be reduced if the empiricist could anchor citations against a *cached* local corpus instead of regenerating from parametric memory under prompt pressure.
+
+The gap is specifically **semantic retrieval over a persistent local corpus**, not live search (which arXiv MCP covers) and not citation verification (which `/verify-citations` covers, post-hoc).
+
+**Architecture sketch** (~6-8 h, depends on arXiv MCP working end-to-end):
+
+1. **PDF cache** at `~/Research/pdfs/` — already partially exists for arXiv MCP's downloaded papers. Make it append-only (never delete) and add a `manifest.jsonl` per-PDF with `{arxivId, title, authors[], abstract, downloadedAt, pdfPath}`.
+
+2. **Text extraction + chunking** — for each PDF in the cache, extract text (pypdf or pdfminer) and split into ~512-token chunks with 64-token overlap. Persist chunks at `~/Research/chunks/<arxivId>.jsonl`. Idempotent — only run on PDFs without an existing chunk file.
+
+3. **Embedding generation** with BGE-M3 (multilingual, 1024-dim) — pull `bge-m3` via Ollama (it has embedding support for this model family). Embed each chunk; persist to a flat-file FAISS index at `~/Research/index.faiss` + a SQLite metadata sidecar mapping vectorId → {arxivId, chunkIdx, chunkText}.
+
+4. **Semantic-search slash command** `/literature search "<query>" [--k=5]` — embeds the query, returns top-K chunks with arxivId + relevance score + chunk excerpt. Used directly by the empiricist via tool exposure (similar to arXiv MCP's pattern).
+
+5. **Integration with empiricist** — extend `EMPIRICIST_PROMPT` `<arxiv_mcp_grounding>` block with a "**preferred path**: query the local index first via `/literature search`; only fall through to arxiv MCP search if the local index returns <3 relevant chunks." Two-tier retrieval: local index for fast warm searches, arxiv MCP for cold/recent literature.
+
+6. **Cache invalidation strategy** — none. The index is append-only; new papers added via arxiv MCP download trigger re-embedding for just the new PDF. Old chunks stay valid forever (paper content doesn't change).
+
+**Why P3 (not P2)**:
+- Doesn't unblock the thesis methodology chapter the way the citation-verification harness did. That's already shipped and producing data.
+- Requires arXiv MCP to actually work end-to-end first (currently blocked on the local-model tool-call loop bug — see "MCP tool-call compatibility audit" entry). Without MCP working, the PDF cache stays empty.
+- Real value depends on having ~30+ cached papers minimum before semantic similarity becomes useful. That's a runway problem, not a code problem.
+
+**Why worth tracking now**: this is the right *long-term* augmentation for the empiricist role. It directly addresses the "domain-correlated confabulation" finding from THESIS_FINDINGS (falcon-3 strong on PQC, weak on ML — the difference is partly about how thinly-indexed each domain is in the model's parametric memory; a local cache + retrieval layer would compensate).
+
+**Concrete deferred sub-tasks** (don't tackle until the parent entry is closer):
+- BGE-M3 quantization tuning — full fp16 is 4 GB VRAM; Q8 cuts to 2 GB; tradeoff embedding quality vs VRAM budget when run alongside the Council fleet
+- Cross-language coverage — BGE-M3 is multilingual which matches the thesis's diverse-corpus goal but means embedding quality on English ML papers may be sub-optimal vs an English-specialist embedder like `nomic-embed-text` or `mxbai-embed-large`. Worth benchmarking once a cache exists.
+- Hybrid retrieval — pair semantic search with BM25 keyword search for the "user knows the exact author name" case. The current arxiv MCP handles this; the local index doesn't until extended.
+- Direct PDF-section retrieval — instead of chunking blindly, parse PDF structure (sections, equations, figures) and embed at the section level for finer-grained results. PyMuPDF or grobid-style processing.
+
+**Origin**: filed 2026-06-09 after external multi-agent-system advice (GPT + Gemini, separately, gave nearly-identical "use BGE-M3 + vector store" recommendations). The other half of their advice (switch to AutoGen/CrewAI, swap Llama-3 in as Planner) was directly contradicted by Phase 1 sweep data and not adopted. The retrieval-layer idea is the one piece worth extracting.
+
 ### Investigate git context leakage into synthesist brief (data leak bug)
 
 **Symptom**: 2026-06-08 — a `/discover` brief with synthesist routed to `deepseek-r1:7b-council` emitted literal git commit SHAs from the current repo's history *inside the brief's "Strongest convergent claim" section*:

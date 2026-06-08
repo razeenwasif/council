@@ -29,6 +29,8 @@ Per-(model, role, prompt) empirical observations from Council/Debate runs. Disti
 9. **Context / system-prompt leakage** — model regurgitates information from its context window that should remain internal: filesystem paths, agent instructions, prior-prompt fragments, git commit SHAs. Adjacent to failure mode 2 (topic drift) but distinct — the leaked content originates *from* the system context rather than from training-data drift. Compounds confabulation by giving false confidence ("the model is producing real-looking data").
 10. **Tokenizer / multilingual contamination** — non-target-language tokens appear inside otherwise-English output (e.g., a Chinese character mid-sentence). Indicates the model's multilingual pretraining leaking into the English instruction-tuned path. Cosmetic in most cases but signals broader risk of vocabulary instability under quantization.
 11. **Cross-domain methodology bleed** — model applies methodology from one domain to a different-domain question, producing on-topic-flavored but technically-misaligned protocols. Distinct from confabulation because the bled-in methodology is itself real (just misapplied).
+12. **Prompt-example contamination** — model treats few-shot examples in its system prompt as if they were data from the input context, producing output that references the examples rather than the actual content under review. Distinct from #9 (system-prompt leakage as regurgitation) because the contamination is laundered through the schema — output passes format compliance and downstream heuristics. Particularly dangerous in verification roles where false confidence is the failure to PREVENT.
+13. **Real-ID / false-context binding** — model generates plausible paper title, authors, and topical claim, then attaches a REAL arXiv ID that exists but corresponds to a completely different paper. The ID resolves cleanly under naive HTTP verification; the surrounding context is invented. *Structurally worse than #3a (named-entity confabulation)* because the hallucination is laundered through a real artifact (the resolvable ID). Directly motivates multi-layer verification: ID resolution + title match + author match + topical relevance must each be checked independently. *Strongest thesis evidence for the paper's verification-layer claim*: single-channel verification appears to work but misses the most consequential failure mode.
 
 ---
 
@@ -440,6 +442,66 @@ What this shows:
 2. **`/verify-citations` `~` expansion** (shipped this iteration) — works on absolute paths.
 3. **Citation harness now usable** — once paths work, run on all 4 briefs to get baseline data on arXiv ID confabulation rates per prompt.
 4. **Synthesist citation format** — still on the table; defer until prompt-contamination question is settled.
+
+---
+
+## 2026-06-09 — Citation harness run → **major thesis finding (failure mode #13)**
+
+Ran `/verify-citations` on the 4 briefs from today (Q-Day + 3 quantization-prompt runs). The Q-Day brief had 0 arXiv IDs (citations were author/year only). Each of the 3 quantization briefs had 2 arXiv IDs. **All 4 IDs across the 2 quant briefs resolve cleanly (HTTP 200).**
+
+But then I fetched the actual paper titles via arxiv.org HTML scrape, and found this:
+
+| ID cited by falcon-3 empiricist | What falcon-3 claimed | Actual paper title |
+|---|---|---|
+| `2210.13569` | "Quantization Effects on Transformer-Based Language Models" | **Characterizing Verbatim Short-Term Memory in Neural Language Models** |
+| `2305.11463` | "Quantizing Large Language Models with Minimal Performance Loss" | **Generative Sliced MMD Flows with Riesz Kernels** |
+| `2109.07504` | "Smith et al., 2022 — quantization causes systematic errors in AI model predictions when tested with OOD data" | **Federated Contrastive Learning for Decentralized Unlabeled Medical Images** |
+| `2208.11540` | "Arora & Jain, 2023 — challenges of maintaining accuracy and calibration in quantized models under varying distribution shifts" | **Metric Effects based on Fluctuations in values of k in Nearest Neighbor Regressor** |
+
+### Failure mode #13: Real-ID / false-context binding
+
+**Definition** (new taxonomy entry): *Model generates a plausible paper title, authors, and topical claim, then attaches a REAL arXiv ID that exists but corresponds to a completely different paper. The ID resolves cleanly; the surrounding content is invented.*
+
+**Why this is structurally worse than pure confabulation** (failure mode #3a, "named-entity confabulation"):
+
+- A 404 check on the ID succeeds → standard citation-verification heuristics miss it
+- A human reader sees a real ID embedded in plausible surrounding text, increasing surface trust
+- The mismatch is only detectable by fetching the paper's actual metadata and comparing title/authors
+- The hallucination is *laundered through a real artifact* — the ID is genuine; everything else is invented
+
+**Mechanism hypothesis**: the model has memorized that arXiv IDs in the `21XX.YYYYY` / `22XX.YYYYY` / `23XX.YYYYY` patterns are real format-valid IDs, and the prefix-year correlation is approximately right (2210 → late 2022, 2305 → mid-2023). When prompted to cite, the model generates a *format-correct* ID without retrieving the paper's actual content. The body of the brief produces a topically-consistent claim/title around the format-valid ID. The two channels never reconcile.
+
+**Why this is a MAJOR thesis finding**: it directly motivates the paper's verification-layer claim. Specifically:
+
+1. **Single-layer verification is insufficient.** A naive citation harness (HEAD check + ID resolution) is exactly the *kind of verification* the paper argues against — it appears to work but misses the actual failure mode.
+2. **Verification layers must be multi-modal.** Cross-checking ID resolution AND title match AND author match AND topical-relevance match catches what any single check misses. The paper's "verification layer" claim becomes concrete: it's not one check, it's a *stack* of independent verifiers.
+3. **Quantized LLMs may produce this failure mode more often** because the topical-knowledge channel and the ID-memorization channel are both compressed independently. *This is testable directly in the thesis's experimental chapter*: produce briefs with full-precision and 4-bit quantized empiricist models, measure failure-mode-#13 occurrence rate, hypothesize a quantization-correlated increase.
+
+### Implications for the harness
+
+`/verify-citations` (shipped this morning, this iteration) catches:
+- Failure mode #3a (named-entity confabulation) IF the ID is fabricated and doesn't resolve
+- Does NOT catch: failure mode #13 (real-ID/false-context binding)
+
+**Required upgrade** (`/verify-citations` v1.5):
+1. For each resolved ID, fetch actual metadata via `export.arxiv.org/api/query?id_list=<id>` (Atom XML, clean format) or HTML `<title>` scrape
+2. Extract claimed-title-near-ID from the brief (regex window around the cited ID)
+3. Compute similarity between claimed title and actual title (token-overlap or simple substring check would catch our 4 cases, semantic embedding would be more robust)
+4. Flag any ID where claimed-title and actual-title diverge above a threshold
+5. Append to `citationsVerified[]` with `titleMatch: boolean` field
+
+**This upgrade is a v1.5 of the harness, not v2**, because the implementation is straightforward (~1 h). The harder problem (v2 — author-name verification for `(Yang & Hodgkiasz, 2023)`-style citations with no arXiv ID) stays deferred. Combined v1+v1.5 catches the vast majority of real-world failure modes I've observed.
+
+### Other observations from today's harness run
+
+- **Q-Day brief: 0 arXiv IDs**. The PQC discussion is high-level enough that voices cited NIST process + algorithm names but no specific papers. The empiricist on PQC didn't need arXiv IDs to make its points. Worth noting in the methodology chapter: *citation density varies by domain*. Mature, well-documented domains (PQC) generate higher-level briefs without specific papers; active research areas (LLM quantization) generate ID-heavy briefs that are MORE susceptible to failure mode #13 because IDs are the model's preferred citation format.
+- **falcon-3 produces all 4 of the failure-mode-#13 cases** in the empiricist role. The earlier hypothesis that falcon-3 was "strongest content + clean format" was based on PQC content where IDs weren't needed. On ML/quantization content where IDs ARE needed, falcon-3 produces them format-validly but content-falsely. **Falcon-3's citation reliability is even narrower than I logged earlier** (failure-mode-#9-domain-correlated observation). Confabulation severity is *inverse* to domain index density. *Worth its own paragraph in the methodology chapter.*
+
+### Updated next priorities (replaces yesterday's list)
+
+1. **Ship `/verify-citations` v1.5** (~1 h): add title-match check via arxiv API/HTML. Directly catches the most-thesis-relevant failure mode discovered today.
+2. **Re-test verifier with cleaned VERIFIER_PROMPT** (still pending) — does Nemo without concrete examples produce only legitimate flags?
+3. **Take a calibration measurement before the harness upgrade**: how many of the 4 IDs would the V1 harness have caught as "passing"? *All 4* — current harness reports 100% pass rate on 100% of failure-mode-#13 cases. That's the v1 false-pass rate against this failure mode. Worth quoting verbatim in the methodology chapter.
 
 ---
 

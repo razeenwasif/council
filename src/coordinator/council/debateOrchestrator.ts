@@ -614,14 +614,29 @@ export async function runDebate(inputs: DebateInputs): Promise<DebateResult> {
 
 /**
  * Best-effort count of items in the verifier's "Suspect claims" list.
- * Matches lines starting with `- **Claim**:` per the verifier's schema.
- * Returns 0 when the section is "(none)" or unparseable.
+ * Counts "Concern:" sub-property lines — the most stable marker across
+ * model output variations. VERIFIER_PROMPT's canonical schema is:
+ *   - **Claim**: "..."
+ *     - **Concern**: ...
+ *     - **Suggested check**: ...
+ * But local models vary in fidelity — observed R1 output (2026-06-09):
+ *     - **Q-Day**:
+ *       - Concern: ...
+ * The Claim header is bolded with the actual label rather than literally
+ * "Claim", and the Concern sub-property is unbolded. Counting Concern
+ * lines is robust across both formats — every flag has exactly one
+ * Concern per the prompt's schema.
+ *
+ * Returns 0 when the section is empty ("(none)", "<none>", "none").
  */
 function countSuspectClaims(notes: string): number {
   if (!notes) return 0
-  if (/^\s*\(none\)\s*$/m.test(notes)) return 0
-  const matches = notes.match(/^- \*\*Claim\*\*:/gm)
-  return matches?.length ?? 0
+  // Empty-section sentinel — accept (none), <none>, "none", any case
+  if (/^\s*[(<]?none[)>]?\s*$/im.test(notes)) return 0
+  // Bullet (- or *) followed by optional bold around "Concern", then
+  // colon. Catches both canonical `- **Concern**:` and R1's `- Concern:`.
+  const matches = notes.match(/^\s*[-*]\s+\*{0,2}Concern\*{0,2}\s*:/gim) ?? []
+  return matches.length
 }
 
 // Re-exports for convenience.

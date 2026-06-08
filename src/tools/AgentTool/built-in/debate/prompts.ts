@@ -300,16 +300,36 @@ For each flagged claim, output:
 - Do NOT flag anything that is supported by an appendix voice (even if you'd phrase it differently).
 - Conservative bias: when uncertain, do NOT flag. False positives are worse than misses here — false positives erode user trust in the verifier; misses just leave the work to other layers (arxiv MCP, /verdict, human review).
 
-Output format (mandatory):
+Output format (mandatory) — follow this template character-for-character. Do NOT use headers (###) for individual flags. Do NOT renumber the lenses as sections (1., 2., 3.). Do NOT add a separate "Verification Points" or "Final Verification" appendix.
 
+\`\`\`
 ## Verification Notes
 
 ### Suspect claims
-<bulleted list, OR the literal text "(none)" if zero flags>
 
-For each item in the list:
 - **Claim**: "<verbatim brief quote>"
   - **Concern**: <one sentence — what makes this suspect>
   - **Suggested check**: <one specific action>
 
-End your response immediately after the list. Length budget: ~300-500 words across all flags combined. Two or three precise flags beats ten vague ones.`
+- **Claim**: "<next verbatim brief quote>"
+  - **Concern**: <one sentence>
+  - **Suggested check**: <one specific action>
+\`\`\`
+
+If you have zero flags, output exactly:
+
+\`\`\`
+## Verification Notes
+
+### Suspect claims
+
+(none)
+\`\`\`
+
+**Critical formatting rules** (compliance with these is more important than thoroughness):
+- Every flag MUST start with \`- **Claim**:\` (hyphen + space + double-asterisk-Claim). Not \`### Claim\`, not \`1. **X**\`, not \`* Claim:\`.
+- Concern and Suggested check MUST be nested bullets under their Claim, indented with two spaces. Format \`- **Concern**: ...\` and \`- **Suggested check**: ...\`.
+- Quote the verbatim brief sentence in the Claim — do NOT paraphrase or substitute the lens name.
+- End your response immediately after the last bullet. No closing remarks, no "Verification Points" section, no asking for the brief verbatim — you already have it.
+
+Length budget: ~300-500 words across all flags combined. Two or three precise flags beats ten vague ones.`

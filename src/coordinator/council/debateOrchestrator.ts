@@ -614,18 +614,17 @@ export async function runDebate(inputs: DebateInputs): Promise<DebateResult> {
 
 /**
  * Best-effort count of items in the verifier's "Suspect claims" list.
- * Counts "Concern:" sub-property lines — the most stable marker across
- * model output variations. VERIFIER_PROMPT's canonical schema is:
+ * Counts "Concern:" lines — the most stable marker across model
+ * output variations. VERIFIER_PROMPT's canonical schema is:
  *   - **Claim**: "..."
  *     - **Concern**: ...
  *     - **Suggested check**: ...
- * But local models vary in fidelity — observed R1 output (2026-06-09):
- *     - **Q-Day**:
- *       - Concern: ...
- * The Claim header is bolded with the actual label rather than literally
- * "Claim", and the Concern sub-property is unbolded. Counting Concern
- * lines is robust across both formats — every flag has exactly one
- * Concern per the prompt's schema.
+ * Local models vary in fidelity. Observed variants:
+ *   - R1 on Q-Day (2026-06-09): `- **Q-Day**:` + `- Concern:` (bullets)
+ *   - R1 on quantization (2026-06-09): `### Concern` (markdown header)
+ * Counting Concern markers — in either bullet OR header form — gives
+ * a robust flag count, because every flag has exactly one Concern
+ * per the prompt's schema.
  *
  * Returns 0 when the section is empty ("(none)", "<none>", "none").
  */
@@ -633,10 +632,14 @@ function countSuspectClaims(notes: string): number {
   if (!notes) return 0
   // Empty-section sentinel — accept (none), <none>, "none", any case
   if (/^\s*[(<]?none[)>]?\s*$/im.test(notes)) return 0
-  // Bullet (- or *) followed by optional bold around "Concern", then
-  // colon. Catches both canonical `- **Concern**:` and R1's `- Concern:`.
-  const matches = notes.match(/^\s*[-*]\s+\*{0,2}Concern\*{0,2}\s*:/gim) ?? []
-  return matches.length
+  // Match a Concern marker as either:
+  //   (a) bullet — `- Concern:` or `- **Concern**:` or `* Concern:`
+  //   (b) header — `### Concern` or `## Concern`
+  // The bullet form is canonical per VERIFIER_PROMPT; header form is
+  // R1's drift variant. Either marks exactly one flagged claim.
+  const bulletMatches = notes.match(/^\s*[-*]\s+\*{0,2}Concern\*{0,2}\s*:/gim) ?? []
+  const headerMatches = notes.match(/^#{2,4}\s+\*{0,2}Concern\*{0,2}/gim) ?? []
+  return bulletMatches.length + headerMatches.length
 }
 
 // Re-exports for convenience.

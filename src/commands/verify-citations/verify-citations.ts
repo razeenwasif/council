@@ -173,6 +173,17 @@ function appendCitationsToTelemetry(
   }
 }
 
+/**
+ * Expand a leading `~` or `~/` in a path. Slash commands bypass the
+ * shell, so paths like `~/Research/...` arrive verbatim and need to
+ * be expanded explicitly before being passed to existsSync / readFileSync.
+ */
+function expandHome(p: string): string {
+  if (p === '~') return homedir()
+  if (p.startsWith('~/')) return join(homedir(), p.slice(2))
+  return p
+}
+
 function parseFlags(raw: string): { briefPath?: string; timeoutMs: number } | { error: string } {
   const tokens = raw.trim().split(/\s+/).filter(Boolean)
   let timeoutMs = DEFAULT_TIMEOUT_MS
@@ -188,7 +199,7 @@ function parseFlags(raw: string): { briefPath?: string; timeoutMs: number } | { 
     } else if (tok.startsWith('--')) {
       return { error: `unknown flag '${tok}'` }
     } else {
-      briefPath = tok
+      briefPath = expandHome(tok)
     }
   }
   return { briefPath, timeoutMs }

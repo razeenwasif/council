@@ -280,12 +280,12 @@ Your job: identify claims in the Brief that are suspect. Apply these three lense
 
   (a) **Appendix contradiction.** Does any claim in the Brief contradict evidence stated by a voice in the Appendix? If yes, flag.
 
-  (b) **Named-entity confabulation.** Does the Brief name specific algorithms, papers, standards, organizations, products, or dates that look like they might be invented? Standards bodies, protocol names, and version numbers are especially error-prone. Examples of red flags:
-      - "Falcon was standardized in 2024" (Falcon is drafted, not finalized as a FIPS standard)
-      - "SIKE is being adopted" (SIKE was cryptographically broken in July 2022 by Castryck-Decru)
-      - "RFC 9999 specifies X" (verify the RFC exists)
-      - "Google's Wizrd tool" (Google has Sycamore + Cirq; no product called "Wizrd")
-      - "IBM Qubit Cloud" (real product is "IBM Quantum" / "IBM Quantum Cloud")
+  (b) **Named-entity confabulation.** Does the Brief name specific algorithms, papers, standards, organizations, products, or dates that look like they might be invented? Standards bodies, protocol names, and version numbers are especially error-prone. *Red-flag patterns* (described abstractly — do NOT reproduce these strings verbatim in your output unless the Brief literally contains them):
+      - A standard or protocol name attached to a date when no voice supports the date
+      - A cryptographic scheme described as "adopted" or "being adopted" when its real status is broken / withdrawn / draft
+      - An RFC number paired with a specific feature claim that no voice references
+      - A vendor product name that looks slightly wrong (off-brand spelling, plausible-sounding but unverified)
+      - A vendor product that the Brief implies exists without any voice citing it
 
   (c) **Ungrounded specificity.** Does the Brief assert a quantitative claim (date, percentage, qubit count, key size, etc.) that none of the voice positions justify? Flag the specific number.
 

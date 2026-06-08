@@ -252,6 +252,197 @@ CSV at `/home/amaterasu/Research/phase1-sweep.csv`. Summary metrics from `bun sc
 
 ---
 
+## 2026-06-09 — Post-routing-change end-to-end validation (`/discover` on Q-Day prompt)
+
+Direct A/B against yesterday's baseline brief at `~/Research/debates/2026-06-08-17-11-how-will-the-advent-of-practical-quantum.md`. Same prompt, new routing.
+
+Today's brief: `~/Research/debates/2026-06-08-08-40-how-will-the-advent-of-practical-quantum.md` (file date is 2026-06-08 because of UTC offset — actually 2026-06-09T08:40 AEST).
+
+**Headline measurements**:
+- **Wall-clock duration: 94.3 s** (yesterday: ~200 s; **2.1× faster**)
+- **Brief size: 23,907 bytes** (yesterday: 12,610; 1.9× more substantive)
+- **Failures: 0 voices** (yesterday: 0)
+- **Verifier output: ~800 chars with 3 structured concerns** (yesterday: 48 chars `<none>`)
+
+**Models active**: hypothesizer + devils_advocate + verifier on `deepseek-r1:7b-council`; empiricist on `falcon3:10b-council` (new); methodologist on `mathstral:7b-council` (new); synthesist on `mistral-nemo:12b-council` (unchanged).
+
+### Most important finding: R1 verifier quality is upstream-conditional, not model-intrinsic
+
+Yesterday I wrote off `deepseek-r1:7b-council` as the wrong model for the Reflection role — its 48-char `<none>` output looked like an R1-specific failure (thinking ate the budget). Today, with **identical** verifier model + prompt + settings, R1 produced a structured 3-concern verification using the exact lens-schema designed into VERIFIER_PROMPT:
+
+> 1. **Appendix contradiction**: cleanly cleared (no contradictions detected in voice positions)
+> 2. **Named-entity confabulation**: flagged "Q-Day" as potentially novel terminology
+> 3. **Ungrounded specificity**: flagged the "testing methods" claim as lacking concrete backing
+
+Total verifier wall-clock: 13.3 s (yesterday: 9.7 s).
+
+**The change that unlocked R1 verifier substantive output was NOT the verifier — it was the upstream voice routing.** Yesterday's emp+meth on `llama3.1:8b-council` produced brief content R1 couldn't engage with. Today's emp on `falcon3` + meth on `mathstral` produced brief content with enough specific claims and named entities that R1 could apply its three lenses meaningfully.
+
+**Failure mode #4 (schematic confabulation — "fluent prose, no schema fill") is not Reflection-agent-intrinsic**. It surfaces when the brief content lacks substantive claims to apply the schema to. *Methodology chapter:* the Reflection-agent's evaluable-claim density depends on the upstream Generation-agent layer's output specificity. This is a Co-Scientist architecture observation worth surfacing.
+
+### Caveats / partial failure observations
+
+- **R1 verifier over-flagged "Q-Day" as confabulated terminology** — but Q-Day is established PQC industry parlance (NSA, Microsoft, Cloudflare all use it). Verifier is too cautious on terminology novelty. *Mitigation idea: the verifier prompt could include a "do not flag established industry terms" guard, with a list of canonical PQC terms (Q-Day, HNDL, lattice-based, hash-based, code-based, isogeny-based) as known-vocabulary.*
+- **`countSuspectClaims()` undercounted**: verifier output clearly raised 3 concerns but footer reports "0 flagged." Likely a regex-pattern mismatch in the heuristic — verifier emitted numbered list (`1. ... 2. ... 3. ...`) but the heuristic probably expects `### Suspect Claim` or `- ` bullet markers. Minor bug; file as a follow-up.
+
+### Content quality compared to baseline
+
+- **No SIKE-class confabulation surfaced** in either brief. Today's content is more substantive but stays at the level of generic PQC discourse (RSA, ECC, Shor's, lattice-based) — no specific algorithm names, paper IDs, or quantitative claims that could be invented. Strong indicator the routing change reduced confabulation surface even if neither brief tested its peak.
+- **Synthesist citation format**: today uses `†r2-hypothesizer, r1-methodologist` instead of the prompt's required `(r1-X, r2-Y)` parenthetical format. Same pattern as yesterday — Nemo respects the inline-citation principle but uses its own punctuation. Minor; doesn't impair readability.
+- **Confidence calibration**: both briefs land at 7/10 with explicit caveats. Stable.
+
+### Routing change verdict
+
+Validated. No regressions observed; substantial wins on (a) speed, (b) verifier engagement, (c) brief substance. Nothing to revert. Next iteration's focus shifts from "validate routing" to "tune verifier prompt + countSuspectClaims heuristic + investigate why falcon3 produced longer empiricist content."
+
+---
+
+## 2026-06-09 — Second prompt: quantization-calibration question
+
+Fresh thesis-domain prompt: *"How does 4-bit quantization affect a domain-specialist LLM's calibration on out-of-distribution scientific facts, and what verification layer best catches the degradation?"*. Same routing as Q-Day test. Brief at `~/Research/debates/2026-06-08-09-11-how-does-4-bit-quantization-affect-a-dom.md`.
+
+**Headline measurements**:
+- **Wall-clock: 93.7 s** (Q-Day today: 94.3 s — speed reproducible, ~94 s is the new baseline)
+- **Verifier wall-clock: 16.1 s** (Q-Day today: 13.3 s; Q-Day yesterday: 9.7 s)
+- **Failures: 0 voices**
+
+### Most important finding: R1 verifier output quality is prompt-conditional, NOT stable
+
+Yesterday's R1 verifier on Q-Day produced clean structured 3-concern output with the prompt's bullet schema. Today's R1 verifier on the quantization prompt produced output with:
+
+- **Header-style flag presentation** (`## 1. **Appendix Contradiction**` / `### Concern`) instead of the bulleted `- **Claim**:` schema specified in VERIFIER_PROMPT
+- **Broken markdown**: `### Concern**` with unclosed italic markup
+- **Tokenizer artifacts** mid-output: `"Cltion-based"`, `"Clartie de calibration"` — likely token-id corruption
+- **Context-window failure**: output ends with *"Please provide the brief verbatim so I can offer specific answer notes."* — R1 forgot it had been given the brief earlier in its input and asked to be re-fed it
+- Added unprompted section `## Verification Points` with 3 numbered checks
+- Footer reports "Flagged 0 suspect claims" (the `countSuspectClaims` heuristic also didn't generalize — see below)
+
+**Methodology-chapter implication**: yesterday's substantive R1-verifier output was prompt-specific, not a reliable upstream-routing effect. R1 (`deepseek-r1:7b-council`) is **not a reliable Reflection-agent** across prompts. The Q-Day prompt happened to produce upstream brief content R1 could engage with; today's prompt did not. Verifier model substitution is now a real priority — Mistral Nemo and Falcon-3 are both Tier 1 candidates worth testing in this role.
+
+### Confabulation findings — Falcon-3 + Nemo on harder domain
+
+The PQC literature is heavily indexed; ML/quantization literature is similarly indexed but with denser citation graphs that small models confabulate within rather than reach outside. Two flag-worthy items:
+
+1. **"Yang & Hodgkiasz, 2023"** — falcon-3 empiricist cited this paper supporting OOD calibration findings. "Hodgkiasz" isn't a verifiable ML researcher name. **First citation confabulation observed from falcon-3.** Pilot 1 had falcon-3 cite real Kyber/Dilithium correctly; today's broader ML domain produces fabricated author names. Falcon-3's citation reliability is *domain-correlated*: strong on indexed/canonical PQC content, weak on the active-area ML literature. Worth a paragraph in the methodology chapter: "confabulation rate is not a per-model constant; it varies by how thinly-indexed the queried domain is."
+
+2. **"Deep Expectation Layers"** — referenced in the brief AND the verifier output as a verification technique alongside watermarking. This isn't a recognized LLM verification mechanism. Likely confabulated by one researcher voice and propagated through synthesist + verifier without challenge. *Strong demonstration of the value of an external citation-verification harness* — automated arxiv ID lookup would catch the Yang citation but not the technique name; semantic verification would catch both.
+
+3. **"top-k accuracy score" as a calibration metric** — synthesist mentioned this as a quantitative metric for evaluating calibration. Top-k accuracy is a classification metric, not a calibration metric (calibration uses ECE, Brier score, NLL). **Metric-family misattribution** — adds to the failure-mode taxonomy under 3b (family misattribution) but at a sub-domain level (within ML evaluation metrics).
+
+### Mathstral cross-domain bridging — prompt-specific, not stable property
+
+Pilot 2's mathstral methodologist spontaneously pulled in "matched filter SNR" (GW-physics methodology) on the LLM-quantization protocol-design prompt — a thesis-relevant cross-bridge. Today, mathstral on a similar-domain prompt produced only generic "verification mechanisms must be adapted" content without GW or quantitative-physics analogues.
+
+**Refined hypothesis**: cross-domain bridging activates when the prompt specifically requests **experimental protocol design** (pilot 2: "Design an experimental protocol to measure…") rather than **conceptual exposition** (today: "How does X affect Y…"). The bridging is prompt-cued, not a stable mathstral property.
+
+Worth verifying on a third prompt: re-fire the pilot-2 methodologist prompt verbatim and see if mathstral bridges again. If yes → bridging is reproducible on protocol-design prompts. If no → bridging is even more situational than current data suggests.
+
+### countSuspectClaims fix did NOT generalize
+
+Yesterday's fix matched `- Concern:` and `- **Concern**:` (bullet format). R1's today's output uses `### Concern` (header format). The heuristic missed every flag because R1 chose a different schema. **Three iterations needed**:
+
+1. Tighten VERIFIER_PROMPT to require bullet format with example explicit enough that R1 can't reinterpret (probably needs `<example>` block with verbatim output)
+2. Broaden countSuspectClaims to ALSO match `### Concern` headers as fallback
+3. (Optional) consider switching the verifier model to one that consistently honors the schema — Mistral Nemo is the obvious candidate given it does consistently respect synthesist citation format
+
+### Brief-shape observations (synthesist drift continues)
+
+Nemo as synthesist continues to drift on the citation format:
+- Today: `(r1-devil's advocate vs. r1-hypothesizer, r2-devil's advocate)` — apostrophe in agent name (should be `devils_advocate`), `vs.` conjunction (not in spec), multi-voice citation collision in one parenthetical
+- Yesterday: `†r2-hypothesizer, r1-methodologist` — dagger prefix instead of bare parenthetical
+
+**Methodology**: Nemo respects the *principle* of citing voices but rephrases the *format* each run. The tightened `<critical_citation_rule>` block from earlier in the iteration is not strict enough to bind Nemo's punctuation. *Either rewrite the directive even more explicitly OR accept Nemo's variant format and update the verifier to handle it.*
+
+### Verdict on the second prompt
+
+- **Speed**: reproducible (~94 s baseline confirmed)
+- **Verifier quality**: not stable across prompts → R1 is NOT the right Reflection-agent model
+- **Cross-domain bridging**: prompt-cued, not stable
+- **Confabulation**: domain-correlated; falcon-3 fine on PQC, weak on ML literature
+- **Synthesist drift**: continues; format directives aren't strict enough
+
+**Next iteration priorities** (ranked):
+1. Swap verifier model from `deepseek-r1:7b-council` → `mistral-nemo:12b-council` (Tier 1, format-compliant) AND tighten VERIFIER_PROMPT with an explicit `<example>` block
+2. Iterate countSuspectClaims to handle `### Concern` headers (low-effort backstop)
+3. Tighten SYNTHESIST_PROMPT's citation directive — or accept Nemo's variant and document
+4. *(separate)* Build the citation-verification harness from BACKLOG — it would have caught Yang & Hodgkiasz immediately
+
+---
+
+## 2026-06-09 — Quantization prompt v2 (Nemo verifier, post-tightening)
+
+Third run on the quantization-calibration prompt with `verifier: mistral-nemo:12b-council` + tightened VERIFIER_PROMPT + broader countSuspectClaims heuristic. Brief at `~/Research/debates/2026-06-08-09-34-how-does-4-bit-quantization-affect-a-dom.md`.
+
+**Headline measurements**:
+- **Wall-clock: 90.5 s** (Q-Day today: 94.3 s; Quant v1 today: 93.7 s — speed stable)
+- **Verifier wall-clock: 5.3 s** (R1 was 13.3-16.1 s; **Nemo is 2-3× faster** + much shorter outputs)
+- **Verifier format: PERFECT** — exact `- **Claim**:` / `- **Concern**:` / `- **Suggested check**:` schema-compliant bullets
+- **Flag count: 4 (heuristic correctly counted all 4)** — `countSuspectClaims` fix + Nemo's clean output combined
+- **Failures: 0 voices**
+
+### The big new finding: prompt-example contamination (new failure mode #12)
+
+Nemo verifier output **4 flags**. Inspection: **only 1 is legitimate**; **3 are confabulated from the VERIFIER_PROMPT's own example text**.
+
+Legitimate flag:
+> "Four-bit quantization significantly disrupts domain specialist LLMs' calibration on out-of-distribution scientific facts due to increased noise that affects critical neural mechanisms like attention."
+
+That's a real over-claim from the synthesist — Nemo correctly flagged it as going beyond what voices supported.
+
+**The 3 fabricated flags**:
+- `"Falcon was standardized in 2024"` — NOT IN THE BRIEF. This is from `VERIFIER_PROMPT` line 284 ("Falcon was standardized in 2024 (Falcon is drafted, not finalized as a FIPS standard)"), which I added explicitly as a red-flag *example*.
+- `"SIKE is being adopted"` — NOT IN THE BRIEF. From `VERIFIER_PROMPT` line 285.
+- `"IBM Quantum Cloud"` — NOT IN THE BRIEF. From `VERIFIER_PROMPT` line 288 (`"IBM Qubit Cloud" (real product is "IBM Quantum" / "IBM Quantum Cloud")`).
+
+**Nemo treated my prompt's example strings as if they were content from the brief and confabulated flags around them.** This is a distinct failure mode from #9 (system-prompt leakage where the model regurgitates its system prompt directly) — here the model *uses* the system-prompt examples as material to confabulate AROUND, producing output that LOOKS like a domain-grounded verification but is actually mining the prompt for content.
+
+**Failure mode #12 added to taxonomy**: *Prompt-example contamination — model treats few-shot examples in its system prompt as if they were data from the input context, producing output that references the examples rather than the actual content under review. Distinct from #9 (system-prompt leakage as regurgitation) because the contamination is laundered through the schema — the output looks legitimate.*
+
+This is a **publishable thesis-methodology finding**: *in multi-agent verification systems, the verifier's system prompt examples become an attack surface for confabulation.* It's specifically dangerous because:
+- The output passes format compliance (schema is respected)
+- The output passes downstream heuristics (`countSuspectClaims` counted 4)
+- A human reader has to cross-reference each flag against the brief to detect it
+- **The flag count footer says "4 suspect claims" with high apparent confidence — exactly the kind of false signal the verifier exists to PREVENT**
+
+Fix: rewrite VERIFIER_PROMPT examples as *abstract patterns* rather than concrete strings. Shipped this iteration. Next /discover run will test whether removing the concrete examples eliminates the contamination.
+
+### Updated comparison: verifier behavior across 4 runs on the quantization prompt + Q-Day
+
+| Run | Verifier model | Wall-clock | Format | Heuristic flag count | Real flags | Hallucinated flags |
+|---|---|---|---|---|---|---|
+| 2026-06-08 17:11 Q-Day | R1 | 9.7 s | `<none>` text | 0 | 0 | 0 |
+| 2026-06-09 08:40 Q-Day | R1 | 13.3 s | `### Concern` headers | 0 (heuristic miss) | 3 | 0 |
+| 2026-06-09 09:11 Quant v1 | R1 | 16.1 s | broken markdown + context failure | 0 (heuristic miss) | 0 | 0 |
+| 2026-06-09 09:34 Quant v2 | **Nemo** | **5.3 s** | **perfect schema bullets** | **4 (correct count)** | **1** | **3 (prompt examples)** |
+
+What this shows:
+- **R1 is unreliable across prompts and outputs unparseable garbage**.
+- **Nemo is reliable on format + count, but trades that reliability for a new failure mode (prompt-example contamination)**.
+- The flag-count heuristic and the format-compliance work were necessary but not sufficient.
+- **Real verifier quality is now bottlenecked by prompt engineering**, not model selection.
+
+### Other Nemo verifier observations (positive)
+
+- **No tokenizer artifacts** (R1 had "Cltion-based", "Clartie de calibration"). Nemo's output is clean English throughout.
+- **No context-window failure** (R1 ended with "Please provide the brief verbatim"). Nemo demonstrably processed the brief — its 1 legitimate flag quoted brief content verbatim.
+- **5.3 s is consistent with Nemo's pilot data** (mistral-nemo Tier 1 with sub-10 s averages across all roles in Phase 1 sweep). The model-swap-to-Nemo decision is validated as a separate finding from the prompt-contamination issue.
+
+### Routing change persistence verdict (3 runs in)
+
+- Speed reproducible at ~91-94 s across both prompts (4 runs total under new routing): **STABLE**
+- 0 voice failures across all 4 runs: **STABLE**
+- Verifier with Nemo: format + speed wins, but prompt engineering needed: **PARTIAL** — proceed with the prompt fix, re-test
+- Synthesist drift on citation format: **PERSISTS** (Nemo as synthesist unchanged across runs; same drift pattern)
+
+### Next iteration priorities (ranked)
+
+1. **Re-test verifier with the cleaned VERIFIER_PROMPT** (abstract red-flag patterns, no concrete strings) — does the prompt-contamination disappear? If yes, Nemo verifier is the converged answer.
+2. **`/verify-citations` `~` expansion** (shipped this iteration) — works on absolute paths.
+3. **Citation harness now usable** — once paths work, run on all 4 briefs to get baseline data on arXiv ID confabulation rates per prompt.
+4. **Synthesist citation format** — still on the table; defer until prompt-contamination question is settled.
+
+---
+
 ## What's missing (deferred to next sessions)
 
 These observations require infrastructure that isn't ready yet:

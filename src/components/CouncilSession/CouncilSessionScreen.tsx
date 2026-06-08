@@ -575,7 +575,7 @@ function HelpBar({ availableColumns }: { availableColumns: number }): React.Reac
   return (
     <Box paddingX={1} width={availableColumns}>
       <Text dimColor>
-        ctrl-c cancel · alt-1/alt-2 focus chat/agent · pgup/pgdn scroll · /copy chat · /council · /discover
+        ctrl-c cancel · alt-1/alt-2 focus · alt-↑/↓ line · alt-k/j page · /copy chat · /council · /discover
       </Text>
     </Box>
   )

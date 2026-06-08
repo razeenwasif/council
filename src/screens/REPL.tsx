@@ -4,6 +4,7 @@ import { feature } from 'bun:bundle';
 import { spawnSync } from 'child_process';
 import { snapshotOutputTokensForTurn, getCurrentTurnTokenBudget, getTurnOutputTokens, getBudgetContinuationCount, getTotalInputTokens } from '../bootstrap/state.js';
 import { parseTokenBudget } from '../utils/tokenBudget.js';
+import { startTelemetryCollector } from '../utils/councilTelemetryCollector.js';
 import { count } from '../utils/array.js';
 import { dirname, join } from 'path';
 import { tmpdir } from 'os';
@@ -1196,6 +1197,13 @@ export function REPL({
     return initialReplacementState ? applyToolResultReplacementsToMessages(initialMessages, initialReplacementState.replacements) : initialMessages;
   });
   const messagesRef = useRef(messages);
+  // Start the council telemetry collector once per process. Idempotent —
+  // multiple calls register only one bus subscriber. Records land at
+  // ~/.openclaude/council-runs.jsonl on each session-end; outcomes +
+  // verifications are attached via /verdict.
+  useEffect(() => {
+    startTelemetryCollector();
+  }, []);
   // Stores the willowMode variant that was shown (or false if no hint shown).
   // Captured at hint_shown time so hint_converted telemetry reports the same
   // variant — the GrowthBook value shouldn't change mid-session, but reading
@@ -4378,6 +4386,18 @@ export function REPL({
     }
     if (key.meta && key.downArrow) {
       handle.scrollBy(1);
+      event.stopImmediatePropagation();
+      return;
+    }
+    // Alt+J / Alt+K — vim-style page scroll on the focused pane. Added
+    // 2026-06-08 for keyboards without dedicated PgUp/PgDn keys.
+    if (key.meta && input === 'j') {
+      handle.scrollBy(Math.max(1, transcriptRows - 2));
+      event.stopImmediatePropagation();
+      return;
+    }
+    if (key.meta && input === 'k') {
+      handle.scrollBy(-Math.max(1, transcriptRows - 2));
       event.stopImmediatePropagation();
       return;
     }

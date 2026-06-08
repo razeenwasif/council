@@ -263,20 +263,87 @@ This is a **load-bearing finding for the thesis's local-Council architecture**: 
 
 **Why this matters for the thesis**: the paper's quantization-vs-verification angle has an implicit assumption that quantized models can use MCP tools. If only one model family supports this, the paper's claims about local-substrate-as-substrate need a caveat — the verification layer's grounding step has a narrow model compatibility profile. That's not a deal-breaker (it's a finding) but it's worth explicitly stating.
 
-### Suppress `tools` field in OpenAI shim for models that don't declare tool capability
+---
+
+**Loop-bug investigation update (2026-06-08, late session)**:
+
+Pulled the Llama 3.1 chat template via `ollama show llama3.1:8b-council --template`. Concrete data:
+- Llama 3.1's template instructs tool-call emission as inline JSON: `{"name": "function_name", "parameters": {...}}`
+- Tool *results* are expected back as `role: tool` messages, rendered into the template as `<|start_header_id|>ipython<|end_header_id|>` blocks.
+- Council's OpenAI shim sends tools in OpenAI-standard format → Ollama's template formatter substitutes them into the system message per its Modelfile → model is told to emit JSON.
+
+Three hypothesis branches for where the loop comes from, ranked by likelihood:
+
+1. **Parse-side failure** (most likely). Llama 3.1 emits the JSON with extra surrounding text ("Sure, I'll call the search tool: {...}") or markdown fences (```json {...} ```). Ollama's tool-call extractor expects a clean JSON object and fails to detect the call. The JSON ends up as plain content text. The shim doesn't recognize it as a structured `tool_calls` delta. Model sees no `ipython` response → retries → loop. *Diagnostic*: capture the raw delta.content from a /voice-test run where this happens; check if it contains JSON.
+
+2. **Round-trip failure**. Tool call parses fine on the way out, but when Council sends the tool RESULT back, it's formatted as `role: tool` per OpenAI spec. Llama's template expects this and renders as `ipython`. But the shim might be wrapping the result content with prefixes ("Tool result for X:") or escaping JSON inside it. Diagnostic: log the messages array sent to Ollama on the round-trip request after a successful first tool call.
+
+3. **Accumulation bug** (least likely given Ollama is mature). Structured `tool_calls` arrive correctly across stream chunks but the shim's per-index buffer at `openaiShim.ts:1306-1370` accumulates partial-JSON args incorrectly when the delta arrives in unusual chunk shapes. Diagnostic: would only show up by inspecting `activeToolCalls.get(tc.index)` buffer evolution.
+
+**Reproduction plan** (next session):
+```bash
+# Enable Ollama debug output to capture raw exchanges
+OLLAMA_DEBUG=1 ollama serve  # restart with verbose
+# (Or: journalctl -u ollama -f to tail the existing serve)
+
+# Run a single empiricist call against llama3.1 with MCP available
+/voice-test empiricist llama3.1:8b-council "Find one arXiv paper about post-quantum lattice security and read its abstract."
+
+# Inspect the Ollama journal for the request/response pair — look at what
+# Llama emitted in its assistant message before the cap-hit fired. The
+# format of that message tells us which hypothesis branch is the live one.
+```
+
+After capturing, the fix is one of:
+- Hypothesis 1: extend the shim's `parseRawToolCallsRequestedText` to also match JSON-object-with-name-and-parameters inline patterns (Llama 3.1 native format), so when Ollama's parser misses, the shim catches.
+- Hypothesis 2: clean up the shim's tool-result message serialization to match Llama's expected format (no prefix, no escape).
+- Hypothesis 3: rewrite the delta accumulator to handle out-of-order chunk arrival.
+
+Status: data-gathering deferred to next session; investigation tracked here.
+
+### Center workspace pane stops scrolling after a run completes
+
+**Symptom** (2026-06-08, user-reported): after a `/voice-test` (and likely any slash-command) run completes, the center workspace / REPL pane no longer responds to PageUp / PageDown / arrow scroll input. Issuing `/copy all` temporarily restores scrolling — a one-off workaround that strongly suggests a focus / re-render issue rather than a content / overflow issue.
+
+**Strong hypothesis**: `REPL.tsx:4817` mounts a `<ScrollKeybindingHandler>` whose `isActive` gate is:
+```ts
+isActive={isFullscreenEnvEnabled() && (centeredModal != null || !focusedInputDialog || focusedInputDialog === 'tool-permission')}
+```
+If `focusedInputDialog` is set to a value OTHER than `'tool-permission'` (and no `centeredModal` is open), `isActive` becomes `false` and the keybind handler stops processing scroll input. After a long-running slash command completes, the slash-command UI may leave `focusedInputDialog` in a stale non-default state instead of clearing it back to `undefined`. `/copy all` works because it triggers a re-render that pushes the dialog state back to `undefined`, re-enabling the keybind handler.
+
+**Investigation plan** (~30-60 min):
+1. Add temporary `logForDebugging` calls at `REPL.tsx:2127` (`getFocusedInputDialog`) + `REPL.tsx:4817` (the isActive computation) — log when `focusedInputDialog` changes and what the `isActive` resolves to.
+2. Reproduce: launch Council, run a slash command, observe the post-completion state. The logs should show whether `focusedInputDialog` is sticking to a non-undefined value.
+3. If confirmed: find what's holding the dialog state open. Likely the slash-command result rendering leaves an unclosed modal/dialog component. Look at `/handoff` and `/voice-test` result paths — they return `{ type: 'text', value: ... }` which should be a one-shot render with no dialog state.
+4. Also worth checking the secondary `<ScrollKeybindingHandler>` at `REPL.tsx:4669` (the unconditional one) — if both are mounted simultaneously, ordering / `event.stopImmediatePropagation()` interactions could be at play.
+
+**Why P2**: a usability bug, not a correctness bug — the data still gets written to JSONL, just the scrollback browsing is blocked. Workaround (`/copy all`) is known. Worth fixing because the user works in the REPL during long sweeps and needs to scroll past long outputs.
+
+**Why not P1**: not blocking the Phase 1 sweep or thesis work. Triggered after each run but recoverable in one keystroke.
+
+### ✓ Suppress `tools` field in OpenAI shim for models that don't declare tool capability — SHIPPED 2026-06-08
+
+**Shipped** as a per-model `supportsTools?: boolean` field on `agentModels[<tag>]` in `~/.openclaude/settings.json`. The OpenAI shim looks up the flag via `getInitialSettings()` at the tool-conversion site in `openaiShim.ts:1883`; when `false`, the entire tools block is skipped before the request is built. Also tightened the error classifier (`openaiErrorClassification.ts:isToolCompatibilityMessage`) to match Ollama's "does not support tools" wording so the existing self-heal retry path catches misconfigured models as a backstop.
+
+Set `supportsTools: false` on the 5 known-bad models: `phi4:14b-council`, `mathstral:7b-council`, `meditron:7b-council`, `olmo-3:7b-council`, `falcon3:10b-council`. Verified end-to-end via `/voice-test` pilot — all four new specialists now reach the model and return content; the previous 0.2s 400-error path is gone.
+
+### Original entry (kept for context):
 
 **Symptom**: `phi4:14b` (and likely other completion-only Ollama models) reject any request with a `tools` field, returning `400: does not support tools`. Council's OpenAI-compat shim at `src/services/api/openaiShim.ts` sends `tools: [...]` on every request — even when the role has all tools disallowed and the array is effectively empty. The receiving model strictly checks the field's *presence*, not its contents, against its manifest's tool-capability declaration.
 
 **Discovered 2026-06-08** via `/voice-test synthesist phi4:14b-council "..."` — 0.2 s rejection from Ollama. Blocks Phi-4 14B from being a Council voice despite Phi-4's strong instruction-following capacity.
 
-**Work** (~1-2 h):
-1. Detect which models lack tool capability — either via per-model `agentModels[<tag>].supportsTools: false` setting OR a runtime probe of the Ollama `/api/show` endpoint at the start of each session.
-2. In the OpenAI shim's request builder, omit the `tools` field entirely (not just empty-array) when the target model doesn't support tools.
-3. Verify the orchestrator path still works — voices with disallowed tools currently produce only structured-text output; the shim never had a reason to suppress the field before but should be safe to.
+### `/voice-test` harness loses partial output on cap-hit (NEW — discovered 2026-06-08)
 
-**Why P2**: Unblocks Phi-4 14B + future non-tool-declaring models as Council voices. Particularly relevant if Phi-4 14B turns out to be the right size for synthesist (the unanswered question from the 2026-06-08 iteration session). Also future-proofs Council for other strong-reasoning, no-tools open models that may appear.
+**Symptom**: when a voice cap-hits during a `/voice-test` invocation, the harness records the API error string (`"Claude's response exceeded the 24576 output token maximum…"`) as `output` and the actual accumulated content is discarded. Observed during the Phase 1 pilot — `olmo-3:7b-council` ran for 250s generating >24K tokens; we know FROM the Ollama log it produced ~28K tokens, but the JSONL record contains only the 162-character error message. This loses the most diagnostic signal: *what was the model rambling about* (verbose-on-topic vs runaway-gibberish vs topic-drift).
 
-**Workaround until shipped**: skip non-tool-supporting models for Council voices; use them only for main-loop chat where the shim path is different.
+**Work** (~1 h):
+1. In `src/commands/voice-test/voice-test.ts`, when the AgentTool call fails with the "exceeded output token maximum" error, intercept and try to recover the partial assistant content from the message stream before discarding.
+2. Add a new status value `'cap-hit'` (distinct from `'complete'` which currently masquerades for cap-hit cases) — finishReason was probably "length" but isn't being surfaced; see also the related `finishReason` plumbing fallback noted in the original `/voice-test` plan.
+3. Record both `outputPartial: string` (the recovered content, up to the existing 30K char cap) and `outputLen: number` (uncapped accumulated length, for cap-hit detection comparison vs `max_tokens_requested`).
+4. Verify by re-running OLMo-3 on the empiricist prompt — should now record the actual ~28K-character ramble, which can be inspected for topic-drift vs verbose-on-topic classification.
+
+**Why P2**: blocks classification of the most interesting Phase 1 failure mode (length-cap noncompliance). Currently we can detect cap-hit but can't say *what kind of failure* it was — that's the difference between "verbose model, recoverable via stricter cap" and "broken model, exclude from fleet." Both diagnoses feed the thesis methodology chapter directly.
 
 ### Citation verification harness
 

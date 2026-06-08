@@ -742,6 +742,14 @@ export const SettingsSchema = lazySchema(() =>
           z.object({
             base_url: z.string().url().describe('OpenAI-compatible API endpoint (must be https:// or http://)'),
             api_key: z.string().describe('API key for this provider'),
+            supportsTools: z
+              .boolean()
+              .optional()
+              .describe(
+                'When false, the shim strips the `tools` field from outgoing requests for this model. ' +
+                  "Set to false for models whose chat template doesn't declare function-calling support " +
+                  '(Ollama emits a 400 "does not support tools" error for these). Default: undefined (treated as true).',
+              ),
           }),
         )
         .optional()

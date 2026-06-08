@@ -1,15 +1,10 @@
-import { mkdirSync } from 'node:fs'
-import { appendFile } from 'node:fs/promises'
-import { randomUUID } from 'node:crypto'
-import { join } from 'node:path'
-
 import type { LocalCommandCall } from '../../types/command.js'
 import {
-  AgentAuthFailureError,
-  runSingleAgentFromToolContext,
-} from '../../coordinator/council/councilSpawn.js'
-import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
-import { getInitialSettings } from '../../utils/settings/settings.js'
+  listKnownRoles,
+  listRegisteredModelTags,
+  runVoiceCell,
+  type VoiceTestRecord,
+} from './runCell.js'
 
 const HELP = `Usage: /voice-test <role> <model-tag> "<prompt>"
 
@@ -34,39 +29,17 @@ Output:
 
 Status semantics:
   complete  — model finished cleanly (finish_reason = stop)
-  cap-hit   — model emitted ≥ max_tokens (finish_reason = length, inferred
-              when outputTokens ≥ CLAUDE_CODE_MAX_OUTPUT_TOKENS - 5)
+  cap-hit   — model emitted ≥ max_tokens (finish_reason = length, also
+              detected when AgentTool wraps the cap-hit as an error in
+              result.text)
   error     — dispatch threw (e.g. agent not found, auth failure, abort)
+
+Tip: to run many (role × model) cells at once, use /voice-sweep instead.
 
 Example:
   /voice-test empiricist phi4-mini:3.8b-council "name 3 NIST PQC standards"
   /voice-test methodologist gemma4:26b-council "what FTQ count breaks RSA-2048?"
 `
-
-const FILE_NAME = 'voice-tests.jsonl'
-const OUTPUT_CHAR_CAP = 30_000
-
-type VoiceTestRecord = {
-  testId: string
-  timestamp: string
-  role: string
-  modelTag: string
-  prompt: string
-  status: 'complete' | 'cap-hit' | 'error'
-  finishReason: string
-  output: string
-  outputLen: number
-  durationMs: number
-  inputTokens: number
-  outputTokens: number
-  costUsd: number
-  errorMessage?: string
-}
-
-function cap(text: string, max: number): string {
-  if (text.length <= max) return text
-  return text.slice(0, max - 1) + '…'
-}
 
 /**
  * Parse `<role> <model-tag> "<prompt>"`. Prompt may be quoted (with `"…"`)
@@ -84,145 +57,21 @@ function parseArgs(raw: string): { role: string; modelTag: string; prompt: strin
   return { role: m[1]!, modelTag: m[2]!, prompt }
 }
 
-async function appendVoiceTestRecord(record: VoiceTestRecord): Promise<void> {
-  try {
-    const dir = getClaudeConfigHomeDir()
-    mkdirSync(dir, { recursive: true })
-    await appendFile(join(dir, FILE_NAME), JSON.stringify(record) + '\n', 'utf8')
-  } catch {
-    // best-effort
-  }
-}
-
-export const call: LocalCommandCall = async (args, context) => {
-  const raw = (args ?? '').trim()
-  if (!raw || raw === 'help' || raw === '-h' || raw === '--help') {
-    return { type: 'text', value: HELP }
-  }
-
-  const parsed = parseArgs(raw)
-  if ('error' in parsed) {
-    return { type: 'text', value: `voice-test: ${parsed.error}\n\n${HELP}` }
-  }
-  const { role, modelTag, prompt } = parsed
-
-  // Validate role exists in the agent registry.
-  const agentDefs = context.options.agentDefinitions
-  const agent = agentDefs?.activeAgents?.find(a => a.agentType === role)
-  if (!agent) {
-    const known = (agentDefs?.activeAgents ?? []).map(a => a.agentType).sort()
-    return {
-      type: 'text',
-      value:
-        `voice-test: unknown role '${role}'. Known roles: ${known.join(', ')}`,
-    }
-  }
-
-  // Build the providerOverride. 'default' = no override (use agentRouting).
-  let providerOverride: { model: string; baseURL: string; apiKey: string } | undefined
-  if (modelTag !== 'default') {
-    const settings = getInitialSettings()
-    const agentModels = (settings as unknown as { agentModels?: Record<string, { base_url?: string; api_key?: string }> }).agentModels
-    const entry = agentModels?.[modelTag]
-    if (!entry) {
-      const known = Object.keys(agentModels ?? {}).sort()
-      return {
-        type: 'text',
-        value:
-          `voice-test: model-tag '${modelTag}' not in agentModels. Known tags: ${known.join(', ') || '(none registered)'}\n` +
-          `Or use 'default' to skip override and let agentRouting resolve.`,
-      }
-    }
-    if (!entry.base_url || !entry.api_key) {
-      return {
-        type: 'text',
-        value:
-          `voice-test: agentModels[${modelTag}] is missing base_url or api_key. Both are required.`,
-      }
-    }
-    providerOverride = {
-      model: modelTag,
-      baseURL: entry.base_url,
-      apiKey: entry.api_key,
-    }
-  }
-
-  const testId = randomUUID()
-  const timestamp = new Date().toISOString()
-  const start = Date.now()
-  let record: VoiceTestRecord
-
-  try {
-    const result = await runSingleAgentFromToolContext({
-      subagent_type: role,
-      description: `voice-test:${role}@${modelTag}`,
-      prompt,
-      toolUseContext: context,
-      canUseTool: context.canUseTool,
-      setMessages: context.setMessages,
-      providerOverride,
-    })
-    const durationMs = Date.now() - start
-    const status: 'complete' | 'cap-hit' =
-      result.finishReason === 'length' ? 'cap-hit' : 'complete'
-    record = {
-      testId,
-      timestamp,
-      role,
-      modelTag,
-      prompt,
-      status,
-      finishReason: result.finishReason,
-      output: cap(result.text, OUTPUT_CHAR_CAP),
-      outputLen: result.text.length,
-      durationMs,
-      inputTokens: result.inputTokens,
-      outputTokens: result.outputTokens,
-      costUsd: result.costUsd,
-    }
-  } catch (err) {
-    const durationMs = Date.now() - start
-    const errorMessage =
-      err instanceof AgentAuthFailureError
-        ? `auth failure for ${err.subagentType}: run /login or check OAuth token`
-        : err instanceof Error
-          ? err.message
-          : String(err)
-    record = {
-      testId,
-      timestamp,
-      role,
-      modelTag,
-      prompt,
-      status: 'error',
-      finishReason: 'error',
-      output: '',
-      outputLen: 0,
-      durationMs,
-      inputTokens: 0,
-      outputTokens: 0,
-      costUsd: 0,
-      errorMessage,
-    }
-  }
-
-  await appendVoiceTestRecord(record)
-
-  // Compose the one-line summary.
+function formatCellSummary(record: VoiceTestRecord): string {
   const durSec = (record.durationMs / 1000).toFixed(1)
   const tokenSummary =
     record.outputTokens > 0 || record.inputTokens > 0
       ? `${record.inputTokens}in/${record.outputTokens}out`
       : '—'
-  const headline = `voice-test ${role}@${modelTag}: ${record.status} · ${tokenSummary} · ${durSec}s · testId=${testId.slice(0, 8)}`
+  const headline =
+    `voice-test ${record.role}@${record.modelTag}: ${record.status} ` +
+    `· ${tokenSummary} · ${durSec}s · testId=${record.testId.slice(0, 8)}`
   const lines = [headline]
   if (record.errorMessage) {
     lines.push(`  error: ${record.errorMessage}`)
   } else if (record.outputLen > 0) {
     const preview =
-      record.outputLen > 200
-        ? record.output.slice(0, 200) + '…'
-        : record.output
+      record.outputLen > 200 ? record.output.slice(0, 200) + '…' : record.output
     lines.push('')
     lines.push('  output preview:')
     lines.push(
@@ -237,6 +86,40 @@ export const call: LocalCommandCall = async (args, context) => {
       )
     }
   }
+  return lines.join('\n')
+}
 
-  return { type: 'text', value: lines.join('\n') }
+export const call: LocalCommandCall = async (args, context) => {
+  const raw = (args ?? '').trim()
+  if (!raw || raw === 'help' || raw === '-h' || raw === '--help') {
+    return { type: 'text', value: HELP }
+  }
+
+  const parsed = parseArgs(raw)
+  if ('error' in parsed) {
+    return { type: 'text', value: `voice-test: ${parsed.error}\n\n${HELP}` }
+  }
+
+  const result = await runVoiceCell({
+    role: parsed.role,
+    modelTag: parsed.modelTag,
+    prompt: parsed.prompt,
+    context,
+  })
+
+  if (!result.ok) {
+    // Validation failed (unknown role/model). Surface known options.
+    const detail = parsed.modelTag === 'default'
+      ? ''
+      : `\nKnown model tags: ${listRegisteredModelTags().join(', ') || '(none registered)'}`
+    const roleHint = result.validationError.startsWith('unknown role')
+      ? `\nKnown roles: ${listKnownRoles(context).join(', ')}`
+      : ''
+    return {
+      type: 'text',
+      value: `voice-test: ${result.validationError}${roleHint}${detail}`,
+    }
+  }
+
+  return { type: 'text', value: formatCellSummary(result.record) }
 }

@@ -31,6 +31,7 @@ import {
   refreshCodexAccessTokenIfNeeded,
 } from '../../utils/codexCredentials.js'
 import { logForDebugging } from '../../utils/debug.js'
+import { getInitialSettings } from '../../utils/settings/settings.js'
 import { isBareMode, isEnvTruthy } from '../../utils/envUtils.js'
 import { resolveGeminiCredential } from '../../utils/geminiAuth.js'
 import { hydrateGeminiAccessTokenFromSecureStorage } from '../../utils/geminiCredentials.js'
@@ -1880,7 +1881,17 @@ class OpenAIShimMessages {
       }
     }
 
-    if (params.tools && params.tools.length > 0) {
+    // Proactively skip tool injection for models that declare
+    // supportsTools: false in agentModels. Ollama's OpenAI-compat shim
+    // returns 400 "does not support tools" for models whose chat
+    // template lacks function-calling — without this we'd round-trip,
+    // hit the self-heal retry path, and pay 2× latency. Settings is
+    // keyed by the same model tag the shim has resolved.
+    const modelToolsDisabled =
+      getInitialSettings()?.agentModels?.[request.resolvedModel]
+        ?.supportsTools === false
+
+    if (!modelToolsDisabled && params.tools && params.tools.length > 0) {
       const converted = convertTools(
         params.tools as Array<{
           name: string

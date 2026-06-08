@@ -1,0 +1,30 @@
+{
+  "_comment": "Fixed prompt-per-role matrix for the Phase 1 voice sweep. Edit prompts here; the sweep script picks them up automatically. These prompts become the published benchmark questions in the thesis methodology chapter — choose them carefully and keep them stable across sweep iterations so cross-model comparisons remain valid.",
+  "_version": "2026-06-08",
+  "roles": {
+    "empiricist": {
+      "prompt": "List the post-quantum cryptography standards NIST finalized in August 2024 (FIPS 203/204/205). For each, name the underlying mathematical hardness assumption and cite at least one peer-reviewed paper supporting its security margin against known quantum attacks. Be specific with arXiv IDs or DOIs.",
+      "rationale": "Citation-grounded recall. Tests confabulation: the model must name real standards (verifiable against NIST press release) and real papers (verifiable against arXiv). Models that confabulate fail visibly. Models with strong parametric memory of recent ML/crypto literature succeed."
+    },
+    "methodologist": {
+      "prompt": "Design an experimental protocol to measure whether 4-bit quantization of a 7B-parameter scientific-domain language model degrades its factual recall accuracy compared to the full-precision baseline. Specify: the test set construction, the evaluation metric, the statistical test for significance, the control for prompt-variance, and the threshold below which the quantized model should be rejected. Keep your protocol under 400 words.",
+      "rationale": "Methodological discipline + length-cap obedience. Directly thesis-relevant — this IS a sub-protocol of the user's thesis. Models that drift on length cap fail. Models that produce vague (non-actionable) protocols fail. Best response is concrete + bounded."
+    },
+    "devils_advocate": {
+      "prompt": "The consensus position is: NIST's August 2024 PQC standards (Kyber/ML-KEM, Dilithium/ML-DSA, SPHINCS+) are sufficient to defeat the harvest-now-decrypt-later (HNDL) attack on TLS traffic captured in 2018-2024. Argue against this consensus. Identify the strongest concrete reasons the standards may be insufficient — focus on specific technical attacks, implementation pitfalls, or threat-model gaps, not generic FUD. Keep your attack under 400 words.",
+      "rationale": "Defensible counter-argument generation. Tests whether the model can adopt a contrarian position grounded in real technical detail (side-channel attacks on Kyber implementations, parameter-set choice errors, etc.) vs lazy generic skepticism. Voice diversity test: corpus differences should produce different attack vectors."
+    },
+    "hypothesizer": {
+      "prompt": "Suppose superconducting-qubit decoherence times plateau at ~150 µs and no further improvement is achieved by 2035. Hypothesize three alternative paths to scaling fault-tolerant Shor's algorithm to RSA-2048-breaking sizes. For each path, state the key technical assumption it depends on and one falsifiable prediction that would invalidate it within the next 5 years.",
+      "rationale": "Speculative-but-disciplined reasoning. Tests: (a) does the model stay grounded when asked to extrapolate, (b) does it produce falsifiable hypotheses (real ones, not platitudes), (c) does it distinguish 'alternative paths' from 'wishful thinking'. Models tuned for chain-of-thought (R1, Mathstral) should excel; chat-tuned models often fail by producing vague optimistic narratives."
+    },
+    "synthesist": {
+      "prompt": "Synthesize the following three positions into a 250-word brief. Position A (Methodologist, ML-KEM lattice security): 'Kyber's MLWE security margin is comfortable — break it and you've broken structured lattices generally.' Position B (Empiricist, NIST process): 'NIST's August 2024 standards (FIPS 203/204/205) reflect 8 years of public cryptanalysis with no major break announced.' Position C (Devil's Advocate, side-channels): 'Reference implementations of ML-KEM have already shown timing-side-channel leaks in 2024 — the math is fine, the silicon is not.' Identify the convergent claim, the disagreement, and one open question. Cite each position inline with (r1-A), (r1-B), (r1-C). Do not introduce facts not in the three positions.",
+      "rationale": "Integration discipline. Tests: (a) does the model respect cited-source-only constraint or invent supporting detail, (b) does it produce the structured output schema (convergent / disagreement / open question), (c) does the parenthetical citation directive land. SIKE-class confabulation surfaces here — Mistral Nemo respects this; R1 reinterprets citations as a Sources list."
+    },
+    "verifier": {
+      "prompt": "Review the following synthesis for unsupported claims, confabulated citations, or factual errors:\n\n'NIST's FIPS 203 standardizes the Kyber algorithm, descended from Regev's LWE scheme (2005, arXiv:cs/0508103). The Grove-Bonnet-Delaunay attack on structured lattices (2023, arXiv:2304.18532) reduces Kyber-1024 security to 142 bits, below NIST Level 5 (256-bit) requirements. The SIKE break (Castryck-Decru, 2022) demonstrated that isogeny-based schemes were unsafe, which is why NIST excluded them from FIPS 205.'\n\nFlag every claim that appears confabulated, contradicts public record, or specifies detail that no source could plausibly support without explicit citation. Use the schema: ## Verification Notes / ### Suspect Claims / one bullet per flag. Be conservative — only flag what you can defend.",
+      "rationale": "Adversarial fact-checking. The synthesis contains: (a) one real but minor confabulation (Regev's LWE paper is real but the arXiv ID is wrong), (b) one outright invented attack ('Grove-Bonnet-Delaunay', no such paper), (c) one real attack misattributed (SIKE break is real, but FIPS 205 is SPHINCS+ which never included isogenies — so the causation is invented). Strong verifier flags all three. Weak verifier flags 0-1 and waves the rest through."
+    }
+  }
+}

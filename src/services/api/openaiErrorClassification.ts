@@ -123,7 +123,14 @@ function isToolCompatibilityMessage(body: string): boolean {
     lower.includes('tool_use') ||
     lower.includes('tool_result') ||
     lower.includes('function calling') ||
-    lower.includes('function call')
+    lower.includes('function call') ||
+    // Ollama's OpenAI-compat shim emits this for models whose chat
+    // template doesn't declare tool support (e.g. phi4:14b, mathstral,
+    // meditron, olmo-3, falcon3). Verbatim: "<model> does not support
+    // tools". The substring 'tools' alone is too broad, so anchor on
+    // the negation phrasing.
+    lower.includes('not support tools') ||
+    lower.includes("doesn't support tools")
   )
 }
 

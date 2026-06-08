@@ -452,7 +452,7 @@ export function settlementToFailure(
  * (typically the first non-empty line, capped at ~140 chars).
  */
 export function formatStageDone(
-  stage: 'synthesizer' | 'executor' | 'revise',
+  stage: 'synthesizer' | 'executor' | 'revise' | 'verifier',
   durationMs: number,
   summary?: string,
 ): string {
@@ -461,7 +461,9 @@ export function formatStageDone(
       ? 'Synthesizer'
       : stage === 'executor'
         ? 'Executor'
-        : 'Revision'
+        : stage === 'verifier'
+          ? 'Verifier'
+          : 'Revision'
   const duration = formatDuration(durationMs)
   const snippet = summary ? firstLineSnippet(summary) : null
   if (snippet) return `> ✓ **${label}** done (${duration}) — ${snippet}`

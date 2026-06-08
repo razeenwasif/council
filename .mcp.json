@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "arxiv": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "arxiv-mcp-server",
+        "--storage-path",
+        "/home/amaterasu/.arxiv-cache"
+      ]
+    }
+  }
+}

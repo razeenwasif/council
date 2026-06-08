@@ -107,7 +107,19 @@ export async function runDebateFromToolContext(
     type: 'session-start',
     kind: 'discover',
     prompt: opts.question,
-    voices: RESEARCH_ROLES.map(role => ({ role, model: resolveRoleModel(role) })),
+    // The full debate voice list includes:
+    //   - 4 researchers (hypothesizer / empiricist / devils_advocate / methodologist) for r1 + r2
+    //   - 1 synthesist (post-r2 brief writer)
+    //   - 1 verifier (post-synthesist fact-checker)
+    // All 6 surface in the agent thoughts pane. Synthesist + verifier
+    // arrive late in the timeline (after r2 completes) but having them
+    // pre-declared in session-start means their cards exist from the
+    // beginning, ready to flip to 'running' as each stage fires.
+    voices: [
+      ...RESEARCH_ROLES.map(role => ({ role, model: resolveRoleModel(role) })),
+      { role: 'synthesist', model: resolveRoleModel('synthesist') },
+      { role: 'verifier', model: resolveRoleModel('verifier') },
+    ],
   })
 
   const costBefore = getTotalCost()
@@ -213,6 +225,25 @@ export function buildDebateAdapters(
       return synthesistFromAgentTool({
         question,
         contextFiles,
+        allPositions,
+        toolUseId,
+        signal,
+        toolUseContext: inputs.toolUseContext,
+        canUseTool: inputs.canUseTool,
+        setMessages: inputs.setMessages,
+      })
+    },
+
+    spawnVerifier: async ({
+      question,
+      brief,
+      allPositions,
+      toolUseId,
+      signal,
+    }) => {
+      return verifierFromAgentTool({
+        question,
+        brief,
         allPositions,
         toolUseId,
         signal,
@@ -393,6 +424,50 @@ async function synthesistFromAgentTool(
   }
 }
 
+async function verifierFromAgentTool(
+  args: {
+    question: string
+    brief: string
+    allPositions: Position[]
+  } & CommonSpawnDeps,
+): Promise<{
+  text: string
+  modelId: string
+  durationMs: number
+  costUsd: number
+}> {
+  const start = Date.now()
+  // The verifier prompt builds itself from (question + brief + positions).
+  // System prompt is the role's static prompt; user prompt is the
+  // assembled evidence stack.
+  const prompt = buildVerifierPrompt({
+    question: args.question,
+    brief: args.brief,
+    allPositions: args.allPositions,
+  })
+
+  const result = await invokeAgentTool({
+    subagent_type: 'verifier',
+    description: 'Verify synthesist brief',
+    prompt,
+    toolUseContext: applyToolUseIdOverride(
+      args.toolUseContext,
+      args.toolUseId,
+    ),
+    canUseTool: args.canUseTool,
+    signal: args.signal,
+    parentToolUseId: args.toolUseId,
+    setMessages: args.setMessages,
+  })
+
+  return {
+    text: stripThinkBlocks(result.text),
+    modelId: resolveRoleModel('verifier'),
+    durationMs: Date.now() - start,
+    costUsd: result.costUsd,
+  }
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // Prompt builders — exported for tests
 // ──────────────────────────────────────────────────────────────────────
@@ -443,6 +518,20 @@ export function buildSynthesistPrompt(opts: {
     `Research question:\n${opts.question}${contextSection}\n\n` +
     `All ${opts.allPositions.length} positions across rounds 1 and 2:\n\n${formatted}\n\n` +
     `---\n\nProduce the structured brief per the format described in your system prompt.`
+  )
+}
+
+export function buildVerifierPrompt(opts: {
+  question: string
+  brief: string
+  allPositions: Position[]
+}): string {
+  const formatted = formatPriorPositions(opts.allPositions)
+  return (
+    `Research question:\n${opts.question}\n\n` +
+    `---\n\nThe Synthesist just produced this brief:\n\n${opts.brief}\n\n` +
+    `---\n\nThe ${opts.allPositions.length} voice positions that fed into it:\n\n${formatted}\n\n` +
+    `---\n\nApply the three flagging lenses described in your system prompt (appendix contradiction / named-entity confabulation / ungrounded specificity). Emit your verification notes per the schema. Stop after the suspect-claims list.`
   )
 }
 

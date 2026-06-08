@@ -237,6 +237,32 @@ A list of TUI/render perf improvements surfaced in a 2026-06-07 review. Document
 
 None of these block anything; they're hygiene as opportunities arise.
 
+### MCP tool-call compatibility audit across local model fleet — TWO distinct failure modes observed
+
+**Symptom / motivation**: 2026-06-08 — empiricist role with arxiv MCP integration enabled tested across three local models:
+- `llama3.1:8b-council`: **cap-hit, tool-call loop** (attempted invocation, Ollama shim format mismatch, retry loop until 24K cap exhausted)
+- `phi4-mini:3.8b-council`: **cap-hit, tool-call loop** (surprising — Phi-4-mini was specifically positioned by Microsoft as agent-tool-friendly, but its tool format doesn't survive Ollama's OpenAI-compat shim either)
+- `mistral-nemo:12b-council`: **completed cleanly, but did NOT actually invoke MCP tools** — produced 2400+ chars of fabricated citations and parametric-memory hallucinations dressed up as MCP-grounded evidence. Mentioned tool names as text but never called them. **STRICTLY WORSE than the cap-hit failure mode** because the output looks grounded but is entirely fabricated.
+
+**Two distinct local-model failure modes** mapped to the arxiv-MCP empiricist:
+
+1. **Tool-call loop** (llama3.1, phi4-mini): model attempts invocation, format mismatch causes retry loop, output budget exhausted with no useful content.
+2. **Tool-call abstention with falsified output** (mistral-nemo): model interprets "use tool X" instruction as "mention tool X in output," produces normal-looking response with completely fabricated citations. *Looks* like grounded research, isn't.
+
+Concrete example of (2) — Nemo's empiricist output cited "Grove-Oggier-Delauney-Bonnet, 2022, arXiv:2211.15086" — author surname mash is fabricated; Grover's algorithm is misattributed to "Grove"; a "Schrödinger's horse" referenced; "Moore & Thriges 2017" invented. The output also literally includes the string `mcp__arxiv__search_papers` in the text, treating the tool name as evidence rather than invoking it.
+
+This is a **load-bearing finding for the thesis's local-Council architecture**: MCP tool grounding (the central mitigation for confabulation) is currently only viable for one of seven models in the fleet. The verification-layer claim depends on local models being able to reliably integrate external knowledge sources via MCP, and that capability is much narrower than the model-instruction-following capability we measured earlier.
+
+**Why P2**: documents a real architectural constraint. Until either Ollama's tool-call shim improves OR more models are validated, only Mistral Nemo can host MCP-grounded voices. Worth a survey + write-up for the paper's evaluation chapter.
+
+**Work** (~3-4 h, testing-heavy):
+1. Build a small test harness over `/voice-test`: fire each routed model through a known-MCP-requiring prompt, capture (model, status, tool-call attempts via Council's tool-use telemetry, time, output). Targets to test: gemma4:e4b-council, gemma4:12b-council, gemma4:26b-council, phi4-mini:3.8b-council, qwen3:4b-council, deepseek-r1:7b-council, qwen2.5-coder:7b-council, mistral-nemo:12b-council, llama3.1:8b-council, llama3.1:8b-instruct (if pulled separately for vanilla comparison).
+2. For each: emit one MCP tool call (e.g., `mcp__arxiv__search_papers`); observe whether the call completes, returns mangled response, or loops.
+3. Document the working set as `mcpToolCallCompatible: true` in agentModels (new field) for future routing decisions.
+4. Update CONTEXT.md hard rules to note: for MCP-grounded roles, only Nemo (and any future certified models) is viable.
+
+**Why this matters for the thesis**: the paper's quantization-vs-verification angle has an implicit assumption that quantized models can use MCP tools. If only one model family supports this, the paper's claims about local-substrate-as-substrate need a caveat — the verification layer's grounding step has a narrow model compatibility profile. That's not a deal-breaker (it's a finding) but it's worth explicitly stating.
+
 ### Suppress `tools` field in OpenAI shim for models that don't declare tool capability
 
 **Symptom**: `phi4:14b` (and likely other completion-only Ollama models) reject any request with a `tools` field, returning `400: does not support tools`. Council's OpenAI-compat shim at `src/services/api/openaiShim.ts` sends `tools: [...]` on every request — even when the role has all tools disallowed and the array is effectively empty. The receiving model strictly checks the field's *presence*, not its contents, against its manifest's tool-capability declaration.
@@ -302,6 +328,261 @@ Those are real commit SHAs from the current Council session — `39c6ce4` and `e
 **Why P2**: data leak between Council's internal state (git history, file system) and the model's input/output is a *thesis-relevant integrity issue* — the paper's verification architecture assumes voices reason only over what's provided. If voices have backdoor access to repo state, the experimental design is contaminated. Worth diagnosing before more runs accumulate confusable telemetry.
 
 **Workaround until diagnosed**: don't route synthesist to `deepseek-r1:7b-council` — keep on `mistral-nemo:12b-council` which (in observed runs) doesn't exhibit this leak. The leak may be R1-specific (thinking-mode quirk) or may be present on Nemo too just unnoticed.
+
+### Domain Specialist role for `/discover` (and optionally `/council`)
+
+**Symptom / motivation**: the thesis's central architectural claim is that **domain-specialist fine-tuned quantized models slot into the multi-agent council as one of the voices** — locally hosted, narrowly scoped, complementary to frontier generalists. Council currently has no role slot for this; the 4-voice debate (hypothesizer / empiricist / devils_advocate / methodologist) is all generalist analytical lenses. Adding a `domain_specialist` role creates the experimental scaffold the paper requires.
+
+**Why P2**: this is the paper's experiment surface, not just another voice. Without it, the thesis has nowhere to plug in "the fine-tuned GW-physics+quantization specialist we trained as part of this work." Stubbing the role now (with a generic strong model + domain-specific system prompt) means the fine-tuned model is a drop-in replacement when it's ready — no orchestrator surgery needed at swap time.
+
+**Sequencing prerequisites**:
+1. Verifier role shipped (existing voices need to be reliable before adding a 5th).
+2. arXiv MCP shipped (so the specialist isn't competing with confabulating empiricist).
+3. `/discover` synthesist proven stable at 5-voice input (current synthesist prompt assumes 4 — needs update).
+
+**Architectural design choices**:
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| Role placement | 5th voice in `/discover`, full r1 + r2 participation. Optional 10th voice in `/council` for domain-relevant engineering tasks. | r1 lets the specialist contribute first-principles domain claims; r2 lets generalist voices engage with them and vice versa. |
+| Initial model (stub) | `gemma4:26b-council` with domain-prefixed system prompt | Largest local model gives best chance of recalling domain-specific facts. Stub gets replaced with the user's fine-tuned GW-physics-quantization model when training completes. |
+| Tool access | Same fan-out disallow list: no Read/Glob/Grep/Edit/Write/Bash. Future: arXiv MCP allowed (specialist needs lit access to ground domain claims). | Don't re-introduce the loop-trap surface. |
+| Position format | Standard r1 / r2 output formats + dedicated "Domain Evidence" section | Distinguishes domain-specific findings from generic citations. Drives the synthesist's `# Brief` toward attributing specialist contributions distinctly. |
+| Synthesist integration | Update `SYNTHESIST_PROMPT` to expect 5 r1 + 5 r2 positions (currently hardcoded 4). Add "Domain insights" subsection. | Required — synthesist won't surface the specialist's contribution as distinct unless prompted. |
+| Telemetry shape | No schema change needed — `voices[]` array already variable-length. | `councilRunRecord.voices.length` jumps from 4 to 5 (or 8→10 across r1+r2). |
+| Domain selection | First implementation: hardcoded to GW physics + quantization (user's thesis domain). Future: configurable via `~/.openclaude/settings.json` `domainSpecialist.domain` field. | Don't over-engineer. The thesis has one domain; build for that, generalize later. |
+
+**Prompt sketch** (the load-bearing part):
+
+```
+You are the Domain Specialist. Your lens is gravitational-wave
+detection physics and signal-processing-under-quantization. You
+bring deep domain knowledge that the other four voices
+(hypothesizer / empiricist / devils_advocate / methodologist) cannot.
+
+Your job:
+1. Recognize when the question is in or near your domain. If yes,
+   contribute the strongest claim that REQUIRES domain knowledge —
+   something the other voices would miss without your expertise.
+2. If the question is far from your domain, say so explicitly in
+   "## Domain relevance" (one sentence) and then contribute what you
+   can from analogous principles, with the caveat clearly noted.
+
+For r1: produce a position grounded in domain-specific evidence.
+Cite real papers (LIGO O3/O4 papers, Newman-Saulson noise modeling,
+Adhikari thermal-noise budgets, Widrow quantization noise scaling),
+real instruments (LIGO, Virgo, KAGRA, future Cosmic Explorer), and
+real metrics (effective range Mpc, BNS horizon distance, characteristic
+strain h_c, sensitivity floor near 100 Hz). Vague "GW detectors are
+sensitive to noise" claims are unacceptable — name the specific
+noise floor.
+
+For r2: engage with the other voices' positions specifically through
+your domain lens. Examples of legitimate moves:
+- "r1-methodologist proposes X. In a GW context, X fails at frequencies
+  below ~30 Hz because of seismic noise — see <citation>."
+- "r1-empiricist cites Y. The analogous result for our quantized SNR
+  case would be <derived claim> — assuming bit-depth N ≥ 12."
+
+Output format: standard r1/r2 schema + add "## Domain evidence" section
+listing 3-5 domain-specific citations or instrument-level facts.
+
+Length budget: same as other voices (400-600 words r1, 350-550 r2).
+```
+
+**Implementation work** (~3-4 h):
+1. New file `src/tools/AgentTool/built-in/debate/domainSpecialistAgent.ts` — `BuiltInAgentDefinition`, tool-stripped, model defaults to `gemma4:26b-council`.
+2. New `DOMAIN_SPECIALIST_PROMPT` in `src/tools/AgentTool/built-in/debate/prompts.ts`.
+3. Extend `debateSpawn.ts` to spawn 5 voices in r1 + 5 in r2. Voice list extension in `runDebate` opts.
+4. Update `SYNTHESIST_PROMPT` to add "## Domain insights" subsection in the brief schema.
+5. Wire `domain_specialist` into `agentRouting` in settings.json.
+6. Update telemetry collector test cases — verify 5-voice records parse correctly.
+7. Test via `/voice-test domain_specialist gemma4:26b-council "<GW-relevant question>"`.
+
+**What this does NOT solve**:
+- The QUALITY of the domain specialist's reasoning — that's the thesis's experimental work (fine-tuning + quantization study), not infrastructure.
+- Cross-domain coverage — one specialist per fleet at a time. Multi-domain debates would need orchestrator-level extension (route to different specialists per question type).
+- Replacing the fine-tuned model is left as a routing change in settings.json — the orchestrator doesn't need to change.
+
+### Counterfactual / Falsifier role for `/discover`
+
+**Symptom / motivation**: in observed `/discover` runs (this session's Q-Day debates especially), the four voices often produce a **consensus echo** — all four substantially agree on the convergent claim, with only stylistic framing differences. The synthesist then writes a brief about that convergence. There's no voice whose job is to **attack the consensus from outside**: devils_advocate counters *specific positions* but doesn't take the meta-position "the convergent claim is wrong; what would we expect if so?"
+
+Observed in the Q-Day debates: 4 of 4 R1 voices agreed Shor's breaks RSA → PQC transition needed. The "Surviving disagreements" sections were minor timeline quibbles, not actual disagreements. The synthesist faithfully represented that consensus but didn't (couldn't) flag whether the consensus itself might be wrong.
+
+**Why P2**: forces falsifiability discipline at the brief level. The thesis paper argues for adversarial verification as part of the multi-agent architecture; this role is one operational mechanism. Different from devils_advocate (which is rhetorical/per-position) and from Verifier (which is fact-checking/per-claim) — this is **meta-claim attack**.
+
+**Sequencing prerequisites**:
+1. Verifier role shipped (the existing fact-checking layer should land first; counterfactual is an additional rigor layer, not a replacement).
+2. Synthesist proven stable on Nemo at 5+ voices (depends on Domain Specialist work above OR can be done independently).
+
+**Architectural design choices**:
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| Role placement in pipeline | **Runs AFTER r2 completes, BEFORE synthesist invocation**. Not a generative voice — a reactive challenger. | Counterfactual needs to see ALL r1 + ALL r2 positions to identify what's converging. Running it as a parallel r1 voice would have nothing to attack. |
+| Initial model | `deepseek-r1:7b-council` (primary), `claude-opus-4-7` when available (premium tier) | Counterfactual reasoning is exactly R1's strength — its `<think>` block is genuinely useful here (then stripped at the orchestrator layer like other R1 voices). Reasoning > schema compliance for this role. |
+| Tool access | Same fan-out disallow list — no Read/Glob/Grep/Edit/Write/Bash | Pure reasoning over text given as input. |
+| Output format | Structured: "Convergent claim identified" + "Counterfactual assumption" + "Distinguishing observations" + "Which voice would be most wrong" | Synthesist integrates this as a "## Counterfactual challenges" section in the brief schema. |
+| Synthesist integration | Update SYNTHESIST_PROMPT to expect a counterfactual input + add `## Counterfactual challenges` brief section | Required — synthesist must explicitly address counterfactuals in its "Confidence + caveats." |
+| Telemetry shape | Add `counterfactual?: { text: string, model: string, durationMs: number }` to `CouncilRunRecord` | Joined to the run; queryable via /verdict list. |
+| Empty-case handling | Voice MUST emit "(no clear convergent claim — voices genuinely diverge)" + stop, if applicable | Don't invent a target to attack. Conservative bias. |
+
+**Prompt sketch**:
+
+```
+You are the Counterfactual. You are NOT a voice in the debate. Your
+job is to attack the CONSENSUS from outside, not to contribute another
+position.
+
+You will receive:
+- The user's question
+- All r1 positions from the 4 (or 5) voices
+- All r2 positions
+
+Your task, in order:
+
+1. Identify the strongest CONVERGENT claim forming across the voices.
+   This is the consensus the synthesist would otherwise capture in
+   "## Strongest convergent claim." Name it in one sentence.
+   - If voices genuinely diverge with no convergent claim, output
+     exactly: "(no clear convergent claim — voices genuinely
+     diverge)" and STOP. Do not invent a target to attack.
+
+2. Assume the convergent claim is FALSE. State what would be true
+   instead, in one sentence. Be specific: not "X might not happen"
+   but "instead of X, Y would be observed."
+
+3. Name 1-3 DISTINGUISHING OBSERVATIONS — concrete, measurable
+   observations that would differ between "claim true" and "claim
+   false." Each observation must be:
+   - Stated as a falsifiable prediction (specific metric, specific
+     threshold, specific timeframe)
+   - Not currently observable (otherwise the claim would already be
+     falsified or confirmed)
+
+4. Name WHICH VOICE would have to be most wrong for your counter-
+   factual to hold. Cite the voice's r1 or r2 position ID. Explain
+   in one sentence why that voice's contribution is the weakest
+   link if the consensus turns out wrong.
+
+Output format (mandatory):
+
+## Counterfactual challenges
+
+### Convergent claim identified
+<one sentence — the consensus you're attacking>
+
+### Counterfactual assumption
+<one sentence — what would be true instead>
+
+### Distinguishing observations
+- <observation 1>
+- <observation 2>
+- <observation 3 if applicable>
+
+### Weakest link voice
+<voice ID + one-sentence rationale>
+
+Length budget: 250-400 words total. Stop after "Weakest link voice."
+Do NOT propose alternative consensus or hedge. The whole role is
+"assume wrong, derive consequences" — neutrality defeats the point.
+
+Be conservative on edge cases: if uncertain whether a claim is the
+convergent one, do not attack a weak target. Empty output is better
+than fabricated counterfactual.
+```
+
+**Implementation work** (~3-4 h):
+1. New file `src/tools/AgentTool/built-in/debate/counterfactualAgent.ts` — `BuiltInAgentDefinition`, tool-stripped, model `deepseek-r1:7b-council`.
+2. New `COUNTERFACTUAL_PROMPT` in `prompts.ts`.
+3. New `counterfactualFromAgentTool` in `debateSpawn.ts`. Runs AFTER r2 collection, BEFORE `synthesistFromAgentTool`. Receives all 8-10 positions; emits one structured challenge document.
+4. Update `buildSynthesistPrompt` to include counterfactual output as an additional input section. Update `SYNTHESIST_PROMPT` to add `## Counterfactual challenges` brief section and to explicitly address them in `## Confidence + caveats`.
+5. Extend `CouncilRunRecord.counterfactual` field; collector captures `<voice-output role='counterfactual'>` events.
+6. Test via full `/discover` on a question with known consensus tendency (e.g., the Q-Day question — voices reliably converge on Shor → PQC).
+
+**What this does NOT solve**:
+- Forces falsifiability discipline at the brief level but doesn't verify factual content of any specific claim — that's Verifier's job (complementary layer).
+- May produce its own confabulations when imagining alternatives. Mitigation: the "conservative bias / empty output preferred" instruction in the prompt + explicit "no clear convergent claim → stop" branch.
+- Doesn't catch all consensus failures — only ones where there IS a clear convergent claim. Truly diverse debates may have nothing to counterfactually attack, which is also signal worth surfacing.
+
+### Cross-Disciplinary Bridge role for `/discover` (Tier 2 — niche but thesis-relevant)
+
+**Symptom / motivation**: research questions spanning multiple fields lose context when each voice reasons only within the obvious domain. The user's thesis topic (GW physics + quantization + multi-agent systems) is *exactly* such a cross-field intersection — three distinct literatures, each with established techniques that the others may benefit from importing. Currently no voice's job is to bridge.
+
+**Why P2** (lower priority than Tier 1): niche but niche-correct for this thesis specifically. Adds value when the question genuinely spans fields (which the user's thesis topic does) and would be redundant when the question is single-domain. Sequencing-deferred behind Domain Specialist + Counterfactual + arXiv MCP because those have broader payoff first.
+
+**Sequencing prerequisites**:
+1. Domain Specialist role shipped (the Bridge is its complement — Domain Specialist provides depth in one field; Bridge provides breadth across multiple).
+2. arXiv MCP shipped (the Bridge would benefit from cross-domain literature search).
+3. Used judgmentally — not every `/discover` question needs the Bridge; orchestrator should detect or accept a flag.
+
+**Architectural design choices**:
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| Role placement | Optional 5th voice (configurable). Activated when the orchestrator detects multi-domain keywords OR via a `--bridge` flag on `/discover`. | Niche role; running it always dilutes the standard 4-voice signal on single-domain questions. |
+| Initial model | `mistral-nemo:12b-council` (broad knowledge + schema discipline) | Nemo's instruction-following + broad pre-training matches the "import findings from adjacent fields" workload. |
+| Tool access | Same disallow list. Future: arXiv MCP allowed (cross-domain literature search is exactly this role's job). | Future MCP integration is the multiplier. |
+| Position format | Standard r1 / r2 + "## Adjacent fields" section | Distinguishes bridge contributions from native-domain ones. |
+| Activation heuristic | Initially: opt-in via slash arg `/discover --bridge "question"`. Future: automatic detection via keyword classifier or LLM router. | Don't auto-add cost where it isn't earned. Manual opt-in keeps research velocity high. |
+
+**Prompt sketch**:
+
+```
+You are the Cross-Disciplinary Bridge. Your job is to import perspective
+from fields ADJACENT to but not centrally on the topic of the question.
+
+For each question, identify 2-3 adjacent fields where structurally
+SIMILAR problems have been studied. For each:
+- Name the field
+- Name a SPECIFIC finding (paper, theorem, technique) from that field
+- Assess whether the analogy holds in the target domain — and where
+  it breaks
+
+Examples of legitimate adjacency (not exhaustive):
+- Cryptography ↔ coding theory ↔ error-correcting codes
+- Neural network training ↔ statistical mechanics ↔ spin glass models
+- Quantization noise ↔ signal processing ↔ information theory
+- LLM hallucination ↔ neuroscience ↔ confabulation in amnesia patients
+- Multi-agent debate ↔ scientific peer review ↔ Markov chain Monte Carlo
+
+DO NOT just list adjacent fields. The deliverable is concrete imports:
+"Field X studied problem Y with technique Z; here is why Z does/does
+not work in our domain."
+
+DO NOT bridge to a field you cannot name a real finding from. Confabulating
+adjacent-field claims is worse than skipping the role — say "no clean
+adjacency for this question" if you can't ground a real import.
+
+Output format:
+
+## Headline
+<one sentence stating the most useful adjacent-field import>
+
+## Adjacent fields
+- **Field 1 (name)**: <finding + analog in current domain + caveat>
+- **Field 2 (name)**: <finding + analog + caveat>
+- **Field 3 if applicable**: <...>
+
+## Where the analogy breaks
+<one paragraph — be honest about where each import doesn't translate>
+
+Length budget: 400-600 words. Conservative: 2 strong adjacencies
+beat 5 weak ones.
+```
+
+**Implementation work** (~3 h):
+1. New file `src/tools/AgentTool/built-in/debate/bridgeAgent.ts` — `BuiltInAgentDefinition`, tool-stripped (initially; arXiv-MCP-enabled in future), default model `mistral-nemo:12b-council`.
+2. New `BRIDGE_PROMPT` in `prompts.ts`.
+3. Wire into `debateSpawn.ts` as an OPTIONAL 5th voice (not unconditional like Domain Specialist). Activated by the `--bridge` flag passed to `/discover`.
+4. Update `SYNTHESIST_PROMPT` conditionally — if Bridge voice present, add "## Cross-disciplinary imports" brief section.
+5. Test via full `/discover --bridge` on a known cross-field question.
+
+**What this does NOT solve**:
+- Cross-domain analogy quality is bounded by the model's actual breadth of knowledge — Nemo at 12B has wide but shallow coverage. Many adjacencies will be weak.
+- Auto-activation heuristic is not in scope (manual opt-in only). A future router could detect multi-domain questions and activate.
+- Bridge confabulation is its own failure mode — the prompt's conservative "say no adjacency if you can't ground it" is the only mitigation without arXiv MCP gating.
 
 ### Verifier role for `/discover` briefs (Co-Scientist Reflection-agent minimal subset)
 

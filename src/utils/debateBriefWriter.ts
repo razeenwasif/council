@@ -42,9 +42,28 @@ export function formatBrief(result: DebateResult): string {
     formatMetadata(result),
     formatLineageTree(result),
     formatSynthesistSection(result),
+    formatVerifierSection(result),
     formatAppendix(result),
   ]
-  return sections.join('\n\n').trim() + '\n'
+  return sections.filter(s => s.length > 0).join('\n\n').trim() + '\n'
+}
+
+function formatVerifierSection(result: DebateResult): string {
+  const v = result.verification
+  if (!v) return '' // adapter didn't run verifier — skip section entirely
+  if (v.status === 'failed') {
+    return [
+      '## Verification Notes',
+      '',
+      `*Verifier stage failed: ${v.reason ?? 'unknown'}. Brief shipped without fact-checking — treat all claims as unverified.*`,
+    ].join('\n')
+  }
+  // Status === 'ok'. The verifier's own output already includes the
+  // `## Verification Notes` heading per the role's prompt schema; trust
+  // it verbatim. Add a one-line footer summarizing the flag count.
+  const trimmed = v.notes.trim()
+  const footer = `\n\n*Flagged ${v.flagCount} suspect claim${v.flagCount === 1 ? '' : 's'} (verifier model: ${v.modelId ?? 'unknown'}, ${v.durationMs ? `${(v.durationMs / 1000).toFixed(1)}s` : 'duration unknown'}).*`
+  return trimmed + footer
 }
 
 // ──────────────────────────────────────────────────────────────────────

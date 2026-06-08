@@ -16,6 +16,7 @@ import { EMPIRICIST_AGENT } from '../../tools/AgentTool/built-in/debate/empirici
 import { DEVILS_ADVOCATE_AGENT } from '../../tools/AgentTool/built-in/debate/devilsAdvocateAgent.js'
 import { METHODOLOGIST_AGENT } from '../../tools/AgentTool/built-in/debate/methodologistAgent.js'
 import { SYNTHESIST_AGENT } from '../../tools/AgentTool/built-in/debate/synthesistAgent.js'
+import { VERIFIER_AGENT } from '../../tools/AgentTool/built-in/debate/verifierAgent.js'
 import type { BuiltInAgentDefinition } from '../../tools/AgentTool/loadAgentsDir.js'
 
 export function getDebateAgents(): BuiltInAgentDefinition[] {
@@ -25,5 +26,6 @@ export function getDebateAgents(): BuiltInAgentDefinition[] {
     DEVILS_ADVOCATE_AGENT,
     METHODOLOGIST_AGENT,
     SYNTHESIST_AGENT,
+    VERIFIER_AGENT,
   ]
 }

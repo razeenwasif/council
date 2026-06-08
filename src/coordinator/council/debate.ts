@@ -110,6 +110,24 @@ export interface DebateResult {
   failures: DebateFailure[]
   totalCostUsd: number
   totalDurationMs: number
+  /** Verifier-agent output (post-synthesis fact-check). When status is
+   *  'ok', `notes` contains the verifier's `## Verification Notes`
+   *  Markdown section, ready to append to the brief. When 'failed',
+   *  `reason` explains why (cap-hit, timeout, etc.) and `notes` is
+   *  empty — brief still ships without the verification section.
+   *  Undefined when the orchestrator was run without a verifier
+   *  adapter (e.g., tests that don't want the extra spawn). */
+  verification?: {
+    status: 'ok' | 'failed'
+    notes: string
+    /** Best-effort count of items in the "Suspect claims" list.
+     *  Parsed from the notes; 0 when notes is "(none)" or unparseable. */
+    flagCount: number
+    /** Set when status === 'failed'. */
+    reason?: string
+    modelId?: string
+    durationMs?: number
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -184,6 +202,22 @@ export type SpawnSynthesist = (input: {
   costUsd: number
 }>
 
+/** Verifier spawn — post-synthesis fact-check. Optional adapter; when
+ *  omitted, `runDebate` skips the verifier stage entirely. */
+export type SpawnVerifier = (input: {
+  question: string
+  brief: string
+  allPositions: Position[]
+  toolUseId?: string
+  signal: AbortSignal
+}) => Promise<{
+  /** The Verifier's `## Verification Notes` Markdown block. */
+  text: string
+  modelId: string
+  durationMs: number
+  costUsd: number
+}>
+
 /** Optional UI/panel hooks, mirroring Council's pattern. Headless
  *  adapters omit them. */
 export type DebatePrepareBatchHook = (input: {
@@ -207,6 +241,12 @@ export type DebateCompleteMemberHook = (input: {
 export interface DebateAdapters {
   spawnResearcher: SpawnResearcher
   spawnSynthesist: SpawnSynthesist
+  /** Optional. When set, the orchestrator spawns the verifier after
+   *  the synthesist completes and folds the verification notes into
+   *  `DebateResult.verification`. When omitted, the verifier stage
+   *  is skipped entirely — safe default for tests + future code
+   *  paths that don't want the extra latency. */
+  spawnVerifier?: SpawnVerifier
   prepareBatch?: DebatePrepareBatchHook
   prepareSingle?: DebatePrepareSingleHook
   completeMember?: DebateCompleteMemberHook

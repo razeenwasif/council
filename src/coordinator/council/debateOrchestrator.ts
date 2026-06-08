@@ -20,6 +20,7 @@ import {
   extractHeadline,
   formatStageDone,
 } from './councilOrchestrator.js'
+import { emit as emitSessionEvent } from './sessionBus.js'
 import {
   DebateCostCeilingError,
   DebateMemberFailureError,
@@ -460,6 +461,11 @@ export async function runDebate(inputs: DebateInputs): Promise<DebateResult> {
   const synthStart = Date.now()
   const allPositions = [...round1Positions, ...round2Positions]
   let synth: { text: string; modelId: string; durationMs: number; costUsd: number }
+  // Surface the synthesist as a voice in the agent thoughts pane,
+  // mirroring the verifier wiring below. session-start declared
+  // 'synthesist' in the voices list; flip running → done/failed as
+  // the spawn progresses.
+  emitSessionEvent({ type: 'voice-state', role: 'synthesist', status: 'running' })
   try {
     synth = await withTimeout(
       signal =>
@@ -481,6 +487,15 @@ export async function runDebate(inputs: DebateInputs): Promise<DebateResult> {
         summary: synth.text,
       })
     }
+    // Stream the brief text into the agent thoughts pane via the
+    // synthesist voice card.
+    emitSessionEvent({ type: 'voice-output', role: 'synthesist', chunk: synth.text })
+    emitSessionEvent({
+      type: 'voice-state',
+      role: 'synthesist',
+      status: 'done',
+      headline: extractHeadline(synth.text) ?? 'Brief written',
+    })
     emitStatus(
       formatStageDone('synthesizer', Date.now() - synthStart, synth.text),
     )
@@ -493,9 +508,93 @@ export async function runDebate(inputs: DebateInputs): Promise<DebateResult> {
         summary: err instanceof Error ? err.message : String(err),
       })
     }
+    emitSessionEvent({
+      type: 'voice-state',
+      role: 'synthesist',
+      status: 'failed',
+      headline: err instanceof Error ? err.message : String(err),
+    })
     throw err
   }
   ledger.recordOrThrow('synthesist', synth.costUsd)
+
+  // ── Verifier stage (optional, never blocks) ─────────────────────────
+  // Post-synthesis fact-check. Runs only when the adapter supplied
+  // a `spawnVerifier` callback. Failures degrade gracefully — the
+  // brief still ships without verification notes if the verifier
+  // cap-hits, times out, or errors.
+  // TEMP DEBUG 2026-06-08 — emitStatus turned out to be a no-op in
+  // the /discover code path (slash command doesn't pass it through),
+  // so write to a file we can grep instead. Remove once verifier
+  // works end-to-end.
+  try {
+    const { appendFileSync } = await import('node:fs')
+    appendFileSync(
+      '/tmp/verifier-debug.log',
+      `[${new Date().toISOString()}] post-synth: typeof spawnVerifier = ${typeof adapters.spawnVerifier}, adapter keys = ${Object.keys(adapters).join(',')}\n`,
+    )
+  } catch {
+    // best-effort
+  }
+  let verification: DebateResult['verification']
+  if (adapters.spawnVerifier) {
+    emitStatus('Verifying — checking the brief against the appendix.')
+    // Surface the verifier as a voice in the agent thoughts pane.
+    // session-start declared 'verifier' in the voices list; flip to
+    // 'running' as we kick off the spawn so the UI lights up.
+    emitSessionEvent({ type: 'voice-state', role: 'verifier', status: 'running' })
+    const verifyStart = Date.now()
+    try {
+      const v = await withTimeout(
+        signal =>
+          adapters.spawnVerifier!({
+            question,
+            brief: synth.text,
+            allPositions,
+            signal,
+          }),
+        synthesistTimeoutMs,
+        'synthesist', // re-uses synth timeout class for the stage budget
+      )
+      ledger.recordOrThrow('synthesist', v.costUsd)
+      verification = {
+        status: 'ok',
+        notes: v.text,
+        flagCount: countSuspectClaims(v.text),
+        modelId: v.modelId,
+        durationMs: Date.now() - verifyStart,
+      }
+      // Push the verifier text onto the agent thoughts pane via the
+      // standard voice-output bus event, then flip status to done.
+      emitSessionEvent({ type: 'voice-output', role: 'verifier', chunk: v.text })
+      emitSessionEvent({
+        type: 'voice-state',
+        role: 'verifier',
+        status: 'done',
+        headline:
+          extractHeadline(v.text) ??
+          `Verifier flagged ${verification.flagCount} claim(s)`,
+      })
+      emitStatus(formatStageDone('verifier', Date.now() - verifyStart, v.text))
+    } catch (err) {
+      verification = {
+        status: 'failed',
+        notes: '',
+        flagCount: 0,
+        reason: err instanceof Error ? err.message : String(err),
+        durationMs: Date.now() - verifyStart,
+      }
+      emitSessionEvent({
+        type: 'voice-state',
+        role: 'verifier',
+        status: 'failed',
+        headline: verification.reason ?? 'verifier failed',
+      })
+      emitStatus(
+        `Verifier stage failed (${verification.reason}). Brief shipped without verification notes.`,
+      )
+    }
+  }
 
   emitStatus('Debate finished.')
 
@@ -509,7 +608,20 @@ export async function runDebate(inputs: DebateInputs): Promise<DebateResult> {
     failures,
     totalCostUsd: ledger.total(),
     totalDurationMs: Date.now() - start,
+    verification,
   }
+}
+
+/**
+ * Best-effort count of items in the verifier's "Suspect claims" list.
+ * Matches lines starting with `- **Claim**:` per the verifier's schema.
+ * Returns 0 when the section is "(none)" or unparseable.
+ */
+function countSuspectClaims(notes: string): number {
+  if (!notes) return 0
+  if (/^\s*\(none\)\s*$/m.test(notes)) return 0
+  const matches = notes.match(/^- \*\*Claim\*\*:/gm)
+  return matches?.length ?? 0
 }
 
 // Re-exports for convenience.

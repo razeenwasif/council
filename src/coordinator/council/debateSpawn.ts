@@ -46,6 +46,7 @@ import {
   type ResearchRole,
 } from './debate.js'
 import { emit as emitSessionEvent } from './sessionBus.js'
+import { stripThinkBlocks } from '../../utils/stripThinkBlocks.js'
 
 /** Lightweight headline extractor mirroring councilSpawn.quickHeadline. */
 function quickHeadline(text: string): string {
@@ -333,15 +334,19 @@ async function researcherFromAgentTool(
     setMessages: args.setMessages,
   })
 
+  // Strip <think>...</think> blocks (DeepSeek-R1 / Qwen 3 chain-of-thought)
+  // before anything downstream sees the text. See utils/stripThinkBlocks.ts
+  // for why this happens once here rather than at each consumer.
+  const cleanText = stripThinkBlocks(result.text)
   return {
     id: makePositionId(args.roundNumber, args.role),
     role: args.role,
     modelId: resolveRoleModel(args.role),
     roundNumber: args.roundNumber,
-    text: result.text,
-    buildsOn: args.roundNumber === 2 ? parseLineage(result.text, 'builds_on') : [],
-    contradicts: args.roundNumber === 2 ? parseLineage(result.text, 'contradicts') : [],
-    confidence: parseConfidence(result.text),
+    text: cleanText,
+    buildsOn: args.roundNumber === 2 ? parseLineage(cleanText, 'builds_on') : [],
+    contradicts: args.roundNumber === 2 ? parseLineage(cleanText, 'contradicts') : [],
+    confidence: parseConfidence(cleanText),
     durationMs: Date.now() - start,
     costUsd: result.costUsd,
   }
@@ -381,7 +386,7 @@ async function synthesistFromAgentTool(
   })
 
   return {
-    text: result.text,
+    text: stripThinkBlocks(result.text),
     modelId: resolveRoleModel('synthesist'),
     durationMs: Date.now() - start,
     costUsd: result.costUsd,

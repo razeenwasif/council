@@ -35,6 +35,7 @@ const FILE_NAME = 'council-runs.jsonl'
 const SCHEMA_VERSION = 1
 
 const VOICE_OUTPUT_PREVIEW_CHARS = 500
+const VOICE_OUTPUT_FULL_CHAR_CAP = 30_000
 const STAGE_CONTENT_CHAR_CAP = 50_000
 const RESULT_CHAR_CAP = 50_000
 
@@ -52,11 +53,16 @@ export type VoiceRecord = {
   headline: string
   /** Full character count of accumulated output (not capped). */
   outputLen: number
-  /** First N chars of output for human browsing of the JSONL. Beyond
-   *  N characters the field is truncated with `…`. The full output
-   *  is NOT stored — would bloat the log; the orchestrator's chat
-   *  scrollback / agent-thoughts pane is the canonical surface. */
+  /** First N chars of output for at-a-glance browsing of the JSONL.
+   *  Beyond N characters the field is truncated with `…`. */
   outputPreview: string
+  /** Full voice output, capped at VOICE_OUTPUT_FULL_CHAR_CAP. Drives
+   *  the "persistent past-session view" in the agent thoughts pane —
+   *  when no active session is running, the pane re-renders this
+   *  field for the most recent run so the user can read past briefs
+   *  without opening the artifact files on disk. Capped to keep the
+   *  JSONL line size bounded. */
+  outputFull: string
 }
 
 export type OutcomeLabel =
@@ -142,6 +148,7 @@ export function buildRecord(args: {
       headline: '',
       outputLen: 0,
       outputPreview: '',
+      outputFull: '',
     })),
     stageContent: {},
     totalDurationMs: 0,
@@ -158,6 +165,7 @@ export function cap(text: string, max: number): string {
 export function setVoicePreview(record: VoiceRecord, fullText: string): void {
   record.outputLen = fullText.length
   record.outputPreview = cap(fullText, VOICE_OUTPUT_PREVIEW_CHARS)
+  record.outputFull = cap(fullText, VOICE_OUTPUT_FULL_CHAR_CAP)
 }
 
 export function capStageContent(record: CouncilRunRecord): void {
@@ -175,10 +183,87 @@ export function capStageContent(record: CouncilRunRecord): void {
   }
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// In-memory mirror of all runs + subscribe API
+//
+// The collector calls `appendRun` on session-end, which (a) persists
+// to disk, (b) appends to the in-memory `runsCache`, and (c) notifies
+// subscribers via `runsCacheListeners`.
+//
+// The cache is lazy-loaded from disk on first read via
+// `ensureRunsCacheLoaded()` — a fresh Council process hydrates from
+// `~/.openclaude/council-runs.jsonl` so the agent thoughts pane can
+// show past sessions across restarts.
+//
+// Two reader surfaces:
+//   - `getCachedLatestRun()` — convenience for "show latest" (also
+//     fires on subscribe via `subscribeToLatestRun`)
+//   - `getCachedRuns()` + `subscribeRunsCache()` — for the navigable
+//     past-session view (Alt+H/Alt+L cycles backwards/forwards through
+//     this array)
+// ──────────────────────────────────────────────────────────────────────
+let runsCache: CouncilRunRecord[] | null = null
+const latestRunListeners = new Set<(r: CouncilRunRecord | null) => void>()
+const runsCacheListeners = new Set<() => void>()
+
+export async function ensureRunsCacheLoaded(): Promise<void> {
+  if (runsCache !== null) return
+  runsCache = await readAllRuns()
+  // Don't notify here — callers awaiting this fn will read the cache
+  // synchronously after the await; subscribers will be notified on
+  // subsequent mutations via `appendRun`.
+}
+
+export function getCachedRuns(): readonly CouncilRunRecord[] {
+  return runsCache ?? []
+}
+
+export function getCachedLatestRun(): CouncilRunRecord | null {
+  if (!runsCache || runsCache.length === 0) return null
+  return runsCache[runsCache.length - 1]!
+}
+
+export function subscribeToLatestRun(
+  fn: (r: CouncilRunRecord | null) => void,
+): () => void {
+  latestRunListeners.add(fn)
+  return () => {
+    latestRunListeners.delete(fn)
+  }
+}
+
+export function subscribeRunsCache(fn: () => void): () => void {
+  runsCacheListeners.add(fn)
+  return () => {
+    runsCacheListeners.delete(fn)
+  }
+}
+
+function notifyAppend(record: CouncilRunRecord): void {
+  for (const fn of Array.from(latestRunListeners)) {
+    try {
+      fn(record)
+    } catch {
+      // never let a listener break the append chain
+    }
+  }
+  for (const fn of Array.from(runsCacheListeners)) {
+    try {
+      fn()
+    } catch {
+      // never let a listener break the append chain
+    }
+  }
+}
+
 export async function appendRun(record: CouncilRunRecord): Promise<void> {
   try {
     mkdirSync(getClaudeConfigHomeDir(), { recursive: true })
     await appendFile(getTelemetryPath(), JSON.stringify(record) + '\n', 'utf8')
+    // Lazy-init the cache if a subscriber arrived before any reader
+    if (runsCache === null) runsCache = []
+    runsCache.push(record)
+    notifyAppend(record)
   } catch {
     // best-effort
   }

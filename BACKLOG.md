@@ -122,6 +122,59 @@ Five MCPs were evaluated against this project's needs. The two tiers below were 
 - *Risks*: state divergence between MCP and in-process state; vendor lock-in; data model coupling.
 - *Estimate*: not yet — sequence after `CO-SCIENTIST.md` step 5 (Evolution agent) at the earliest.
 
+### ✓ Add explicit length caps to council + debate role prompts — SHIPPED 2026-06-08
+
+All council + debate role prompts now carry explicit "Length budget" + "STOP after [last section]" directives. Targets: council voices 400-700 words, council synth 800-1200, debate r1 400-600, debate r2 350-550, debate brief 800-1400, council review <200. Caps fire on Claude and small models that respect instructions (Phi, R1, Qwen). Caveat: Gemma 4 family (12B, 26B) **ignores length caps** at the synthesist scale — same architectural quirk visible across both model sizes. Root cause behind the synthesist rerouting to `deepseek-r1:7b-council` documented under "Mixed local-only routing baseline" in CONTEXT.md project history.
+
+### Original entry (kept for context):
+
+#### ~Add explicit length caps to council + debate role prompts (Gemma 26b verbosity)~
+
+**Symptom**: with tool-stripping in place and `<think>` blocks scrubbed, the remaining failure mode is `gemma4:26b-council` voices (methodologist, synthesist) and `qwen3:4b-council` voices (empiricist, r2 round) producing as much legitimate content as `max_tokens` allows. At 32 K cap, they emit 32 K. At 16 K, they emit ~16 K. Not a loop — just verbose elaboration of each prompt subsection.
+
+**Root cause**: the role prompts in `src/tools/AgentTool/built-in/{council,debate}/prompts.ts` were tuned for Claude/Opus, which auto-bounds based on natural pacing + RLHF brevity priors. Gemma family lacks that natural bound — given a prompt that lists Headline / Position / Reasoning / Evidence / Confidence / Press-on-others as required sections, Gemma fills each section exhaustively because there's no instruction telling it not to.
+
+**Fix** (~1 h):
+1. In each role prompt (POSITION_PROMPT, REVIEW_PROMPT, SYNTHESIST_PROMPT, EXECUTOR_PROMPT, etc.) add explicit length directives:
+   - Voice positions: "Keep your full response under ~800 words. Each section should be 1-3 paragraphs."
+   - Synthesist brief: "The complete brief should be under ~1500 words. Be concise."
+   - Reviews: "Verdict + reason in under ~200 words."
+2. Test against Gemma 26b — should hit the natural stop before max_tokens.
+3. Test against Claude when quota resets — verify the brevity directive doesn't suppress useful detail.
+
+**Why P2**: blocks the synthesist from completing on the current local-only fleet. Without it, every `/discover` and `/council` truncates mid-brief regardless of cap.
+
+**Workaround until shipped**: `CLAUDE_CODE_MAX_OUTPUT_TOKENS=12288` (set 2026-06-08) — voices fit, synthesist often truncates anyway but at least the appendix is preserved.
+
+### ✓ Strip `<think>` blocks from voice output at the orchestrator layer — SHIPPED 2026-06-08
+
+Implemented in `src/utils/stripThinkBlocks.ts` + applied at all five orchestrator return paths (`researcherFromAgentTool`, `synthesistFromAgentTool`, `proposalFromAgentTool`, `synthesizerFromAgentTool`, `reviewFromAgentTool`). Handles closed `<think>…</think>` blocks AND unclosed (truncated) blocks; falls back to empty when only thinking was emitted. Confirmed working with R1 + Qwen 3 voices — telemetry previews and brief appendix now show clean position text, no scratch work.
+
+**Deferred sub-item**: capture the stripped thinking into a `voice.thinking` archive field so the trace is preserved for thesis analysis rather than discarded. Plumbing: add `voice.thinking?: string` to the `Voice` type, a `voice-thinking` bus event, and a parallel collector path that captures `<think>` content the stripper drops. Not blocking — research can proceed with the current strip-only behavior. Saves CoT for offline analysis.
+
+### Original entry (kept for context):
+
+#### ~Strip `<think>` blocks from voice output at the orchestrator layer~
+
+**Symptom**: voices routed to thinking-mode models (`deepseek-r1:7b-council`, `qwen3:4b-council` — Qwen 3 family enabled thinking in 2025) emit `<think>...</think>` chain-of-thought blocks before their actual structured answer. R1's thinking can run 5–10 K tokens on dense topics; Qwen 3's is smaller but non-trivial. This content currently lands verbatim in `voice.output`, with three downstream consequences:
+
+1. **Brief bloat.** The synthesist receives the thinking as if it were part of the position. Either the brief includes scratch work as analysis (false signal), or the synthesist itself wastes context-window on parsing it.
+2. **Agent-thoughts pane bloat.** The user sees a wall of CoT before the actual headline/position/reasoning sections, making it hard to scan whether the voice's *conclusion* was good.
+3. **Telemetry bloat.** The captured `outputPreview` (first 500 chars) is often *entirely* thinking, with the real position past the truncation point. Means the record's at-a-glance scan value is degraded for any run involving R1/qwen3 voices.
+
+**Root cause**: thinking is structural in R1 (hard-baked into the distillation, no toggle). Qwen 3 *can* be disabled via `/no_think` in the system prompt or chat template, but doing so loses one of the reasons the model was added to the fleet. The right framing is: thinking is *valuable* (it's why these models were chosen for `hypothesizer`/`devils_advocate`/`empiricist`) — but it's *intermediate*, not the answer. It should be captured separately, not concatenated with the final position.
+
+**Fix** (~3-5 h):
+1. Add a chunk-rewriter to `councilSpawn.ts` and `debateSpawn.ts` voice-output emission paths. State machine: when an open `<think>` tag is seen in the streamed chunks, route subsequent chunks to a separate sink until the closing `</think>` is seen; then resume routing to the normal voice-output sink.
+2. Add a `voice.thinking?: string` field to the `Voice` type in `src/components/CouncilSession/types.ts`. Populate from the side sink.
+3. Add a new session-bus event `voice-thinking` (analogous to `voice-output`) so the React reducer can append to `voice.thinking` without touching `voice.output`.
+4. Update the StagePane to render thinking as a collapsed/dim section below the main voice content (default-hidden, expand on focus or via a keybind).
+5. Update `councilTelemetryCollector` to capture a `thinkingPreview` field (first 500 chars of thinking) alongside `outputPreview`, so the telemetry record carries both signals separately.
+
+**Why P2**: directly relevant to the user's thesis methodology — having clean voice positions and *separately archived* thinking traces is exactly the kind of structured artifact a paper on "verification in multi-agent reasoning systems" wants. The R1/qwen3 voices are part of the fleet specifically *because* their reasoning is interesting; the fix is plumbing that interest into a usable representation, not suppressing it.
+
+**Workaround until shipped**: `CLAUDE_CODE_MAX_OUTPUT_TOKENS=32768` (bumped 2026-06-08) absorbs the bloat at the cap layer. Brief content will include thinking verbatim. Acceptable for iteration; not acceptable for the paper.
+
 ### Council prompts ↔ local-Gemma adherence
 
 **Symptom**: when council/discover voices are routed to local Gemma 4 models (e4b, 12b) via Ollama's OpenAI-compatible endpoint, two failure modes appear consistently:

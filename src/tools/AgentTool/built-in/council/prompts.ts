@@ -48,6 +48,8 @@ const BASE_PROPOSAL_FORMAT = `
 
 ## Risks
 <1-4 bullets — what could break, what's uncertain, what depends on assumptions you made>
+
+**Length budget**: your full response should be ~400-700 words total. Each section is brief and high-signal — not exhaustive. Stop after Risks. Do not continue with additional analysis, summary, or self-critique. If you find yourself writing a 5th section, stop.
 `
 
 export const ARCHITECT_PROMPT = `${HEADLINE_DIRECTIVE}You are the Architect on a seven-member council reviewing an engineering request.
@@ -188,7 +190,7 @@ Output format (mandatory):
 ## Risks
 <consolidated risk list — what to watch for during execution>
 
-Keep this concise. The executor reads this directly and needs signal, not noise.`
+**Length budget**: total plan ~800-1200 words. The Plan section is the longest (it's the executor's input); the other three are 2-4 bullets each. Stop after Risks. Do not continue with summary, postscript, or meta-commentary. The plan ends with the last Risk bullet.`
 
 export const COUNCIL_COORDINATOR_PROMPT = `You are the council coordinator. For every user request in council mode, you MUST execute this exact workflow — no improvisation:
 

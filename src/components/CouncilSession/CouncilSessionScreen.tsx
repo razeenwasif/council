@@ -10,6 +10,7 @@ import { SessionStatus } from './SessionStatus.js'
 import { GitStatusPane, SessionTasksPane } from './SidePanes.js'
 import { StagePane } from './StagePane.js'
 import { SystemMonitor } from './SystemMonitor.js'
+import { useCouncilRuns } from '../../hooks/useCouncilRuns.js'
 import { useScratchpad } from '../../hooks/useScratchpad.js'
 import {
   COUNCIL_VOICE_ROLES,
@@ -88,6 +89,11 @@ export type CouncilSessionScreenProps = {
    *  in the REPL. Also drives the border-accent visual cue so the user
    *  can see at a glance which pane will receive scroll input. */
   scrollFocus?: 'chat' | 'agent'
+  /** Index into past sessions for the agent thoughts pane when no live
+   *  session is running. 0 = latest, 1 = previous, 2 = older, etc.
+   *  Driven by Alt+H / Alt+L in the REPL (gated on scrollFocus='agent'
+   *  and session=null). */
+  pastSessionOffset?: number
 }
 
 /** Build an idle Voice array for a given mode — all roles in pending status. */
@@ -147,6 +153,7 @@ export function CouncilSessionScreen({
   modalScrollRef,
   agentScrollRef,
   scrollFocus = 'chat',
+  pastSessionOffset = 0,
 }: CouncilSessionScreenProps): React.ReactNode {
   if (terminalColumns < NARROW_THRESHOLD) return null
 
@@ -305,16 +312,16 @@ export function CouncilSessionScreen({
               REPL path. */}
           <Box flexDirection="row" flexGrow={1}>
             {/* Left half: workspace pane (chat + prompt input). Border
-                lights up when scrollFocus='chat' (alt+1). */}
+                lights up when scrollFocus='chat' (alt+1) — content
+                always renders regardless of scroll focus. */}
             <Box flexDirection="column" width={leftHalfOuter} flexShrink={0}>
               <WorkspacePane
                 name="workspace"
                 outerWidth={leftHalfOuter}
-                focused={scrollFocus === 'chat'}
+                borderColor={scrollFocus === 'chat' ? ACCENT : 'gray'}
                 chatContent={chatContent}
                 promptContent={promptContent}
                 commandValue={commandValue}
-                switchHint="alt-1 to focus · type /council or /discover"
               />
             </Box>
             {/* Right half: agent thoughts pane at full column height.
@@ -350,12 +357,17 @@ export function CouncilSessionScreen({
                   />
                 </ScrollBox>
               ) : (
-                <Box paddingX={1} paddingY={1} flexDirection="column">
-                  <Text dimColor italic>
-                    [no active session — agent thoughts will stream here when
-                    you run /council or /discover]
-                  </Text>
-                </Box>
+                <ScrollBox
+                  ref={agentScrollRef}
+                  stickyScroll={false}
+                  flexGrow={1}
+                  flexDirection="column"
+                >
+                  <PastSessionView
+                    availableColumns={paneInner(rightHalfOuter)}
+                    offset={pastSessionOffset}
+                  />
+                </ScrollBox>
               )}
             </Box>
           </Box>
@@ -571,11 +583,91 @@ function CollapsedVoiceBar({
   )
 }
 
+/**
+ * Past-session view — renders a telemetry record into the agent
+ * thoughts pane when no active session is in progress. Lets the user
+ * re-read prior briefs / executor diffs without opening the artifact
+ * files on disk. Survives Council restarts via the JSONL on disk.
+ *
+ * Navigable via Alt+H (older) and Alt+L (newer) when scrollFocus is
+ * 'agent' (gated in REPL). The `offset` prop selects which record:
+ * 0 = latest, 1 = previous, etc. Out-of-range offsets show empty state.
+ *
+ * Synthesizes a Voice[] from the telemetry record so the existing
+ * `StagePane` can render the per-voice sections — no parallel render
+ * path to maintain. Each voice's `output` is the capped `outputFull`
+ * captured by the telemetry collector.
+ */
+function PastSessionView({
+  availableColumns,
+  offset,
+}: {
+  availableColumns: number
+  offset: number
+}): React.ReactNode {
+  const runs = useCouncilRuns()
+  const total = runs.length
+  if (total === 0) {
+    return (
+      <Box paddingX={1} paddingY={1} flexDirection="column">
+        <Text dimColor italic>
+          [no past session yet — run /council or /discover to populate]
+        </Text>
+      </Box>
+    )
+  }
+  // Clamp offset to [0, total-1]. Offset is "distance from latest"
+  // so the actual array index is total - 1 - offset.
+  const clampedOffset = Math.max(0, Math.min(total - 1, offset))
+  const run = runs[total - 1 - clampedOffset]!
+  const voices: Voice[] = run.voices.map(v => ({
+    role: v.role,
+    model: v.model,
+    status: v.status,
+    headline: v.headline,
+    output: v.outputFull || v.outputPreview || '',
+  }))
+  const time = run.timestamp.slice(0, 19).replace('T', ' ')
+  const promptHead =
+    run.prompt.length > 100 ? run.prompt.slice(0, 100) + '…' : run.prompt
+  const verifNotes = (run.verifications ?? [])
+    .map(v => `${v.verdict}: ${v.notes}`)
+    .join(' · ')
+  // 1-indexed for human display; "1 of 5" reads better than "0 of 5".
+  // Latest = "1 of N", oldest = "N of N".
+  const humanIndex = clampedOffset + 1
+  return (
+    <Box paddingX={1} flexDirection="column" width={availableColumns}>
+      <Box marginBottom={1} flexDirection="column">
+        <Text dimColor>
+          [past {humanIndex}/{total} · {time} · {run.kind}
+          {run.outcome ? ` · outcome:${run.outcome.label}` : ''}
+          {total > 1 ? ' · alt-h older · alt-l newer' : ''}]
+        </Text>
+        <Text wrap="wrap">{promptHead}</Text>
+        {verifNotes && (
+          <Box marginTop={1}>
+            <Text dimColor wrap="wrap">verdict: {verifNotes}</Text>
+          </Box>
+        )}
+      </Box>
+      <StagePane
+        stage="done"
+        focusedVoice={voices[0] ?? null}
+        voices={voices}
+        availableColumns={availableColumns}
+        synthesisText={run.stageContent?.synthesis}
+        executionText={run.stageContent?.execution}
+      />
+    </Box>
+  )
+}
+
 function HelpBar({ availableColumns }: { availableColumns: number }): React.ReactNode {
   return (
-    <Box paddingX={1} width={availableColumns}>
+    <Box paddingX={1} width={availableColumns} flexShrink={0}>
       <Text dimColor>
-        ctrl-c cancel · alt-1/alt-2 focus · alt-↑/↓ line · alt-k/j page · /copy chat · /council · /discover
+        ctrl-c cancel · alt-1/2 focus · alt-↑/↓ line · alt-k/j page · alt-h/l prev/next session · /copy · /council · /discover
       </Text>
     </Box>
   )
@@ -637,38 +729,31 @@ function ScratchpadPane({
  * the input slot is wrapped in an `EffectiveTerminalSizeProvider` bounded
  * to this pane's inner width.
  */
+/**
+ * Single workspace pane — always renders chat + PromptInput. The
+ * `borderColor` is driven by `scrollFocus` (orange when the workspace
+ * is the active scroll target; gray when the agent thoughts pane has
+ * scroll focus). The content rendering used to be split into focused
+ * / unfocused branches (chatPreview, ghostDraft, voiceOutputContent —
+ * artifacts of the dual-pane experiment) but those were removed
+ * 2026-06-08: there's only one workspace pane now, and toggling scroll
+ * focus should never blank its content.
+ */
 function WorkspacePane({
   name,
   outerWidth,
-  focused,
+  borderColor,
   chatContent,
-  chatPreview,
   promptContent,
   commandValue,
-  ghostDraft,
-  switchHint,
-  voiceOutputContent,
-  voiceOutputTitle,
 }: {
   name: 'council' | 'research' | 'workspace'
   outerWidth: number
-  focused: boolean
+  borderColor: string
   chatContent?: React.ReactNode
-  /** Read-only static preview of this pane's recent messages when
-   *  unfocused. The focused pane uses `chatContent` (full scrollable);
-   *  the unfocused pane uses this if provided, else the placeholder. */
-  chatPreview?: React.ReactNode
   promptContent?: React.ReactNode
   commandValue: string
-  /** Ghost draft text for the unfocused state. `undefined` when focused. */
-  ghostDraft?: string
-  switchHint: string
-  /** When this pane owns the active session, the voice-output StagePane.
-   *  Renders below the chat (or alone if unfocused). */
-  voiceOutputContent?: React.ReactNode
-  voiceOutputTitle?: string
 }): React.ReactNode {
-  const borderColor = focused ? ACCENT : 'gray'
   const innerWidth = paneInner(outerWidth)
   return (
     <Box
@@ -682,76 +767,18 @@ function WorkspacePane({
       flexDirection="column"
       borderText={paneTitle(name)}
     >
-      {/* Top area: chat (focused), chatPreview (unfocused + has prior
-          messages), placeholder (unfocused + no session + no preview),
-          or null (unfocused + active session — voice-output fills). */}
-      {focused ? (
-        <Box flexGrow={voiceOutputContent ? 1 : 2} flexDirection="column">
-          <ChatPane availableColumns={outerWidth} chatContent={chatContent} />
-        </Box>
-      ) : voiceOutputContent ? null : chatPreview ? (
-        <Box
-          flexGrow={1}
-          flexDirection="column"
-          width={innerWidth}
-          overflow="hidden"
-        >
-          {chatPreview}
-        </Box>
-      ) : (
-        <Box
-          flexGrow={1}
-          paddingX={1}
-          paddingY={1}
-          flexDirection="column"
-          width={innerWidth}
-        >
-          <Text dimColor italic>
-            [{name} workspace — {switchHint}]
-          </Text>
-        </Box>
-      )}
-      {/* Middle area: voice-output (StagePane) when this pane owns the
-          active session. StagePane has its own internal title, so no
-          wrapper title here — that was causing a duplicate-title bug
-          where the wrapper version stuck at the top of the pane while
-          the StagePane version scrolled with content. */}
-      {voiceOutputContent && (
-        <Box
-          flexGrow={focused ? 1 : 2}
-          flexDirection="column"
-          paddingX={1}
-          width={innerWidth}
-        >
-          {voiceOutputContent}
-        </Box>
-      )}
-      {/* Bottom area: live PromptInput (focused) or ghost draft (unfocused). */}
-      {focused && promptContent ? (
+      <Box flexGrow={1} flexDirection="column">
+        <ChatPane availableColumns={outerWidth} chatContent={chatContent} />
+      </Box>
+      {promptContent ? (
         <Box flexShrink={0} flexDirection="column">
           <EffectiveTerminalSizeProvider columns={innerWidth}>
             {promptContent}
           </EffectiveTerminalSizeProvider>
         </Box>
-      ) : focused ? (
+      ) : (
         <Box flexShrink={0} flexDirection="column" paddingX={1}>
           <SessionCommand value={commandValue} availableColumns={innerWidth} />
-        </Box>
-      ) : (
-        // Unfocused: ghost draft preview so the user sees what they had
-        // been typing in this pane before switching.
-        <Box
-          flexShrink={0}
-          flexDirection="row"
-          paddingX={1}
-          width={innerWidth}
-        >
-          <Text dimColor>{'❯ '}</Text>
-          {ghostDraft && ghostDraft.length > 0 ? (
-            <Text dimColor>{ghostDraft}</Text>
-          ) : (
-            <Text dimColor italic>(empty draft — {switchHint} and type)</Text>
-          )}
         </Box>
       )}
     </Box>

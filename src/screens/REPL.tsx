@@ -5,6 +5,7 @@ import { spawnSync } from 'child_process';
 import { snapshotOutputTokensForTurn, getCurrentTurnTokenBudget, getTurnOutputTokens, getBudgetContinuationCount, getTotalInputTokens } from '../bootstrap/state.js';
 import { parseTokenBudget } from '../utils/tokenBudget.js';
 import { startTelemetryCollector } from '../utils/councilTelemetryCollector.js';
+import { getCachedRuns, subscribeRunsCache } from '../utils/councilTelemetry.js';
 import { count } from '../utils/array.js';
 import { dirname, join } from 'path';
 import { tmpdir } from 'os';
@@ -4317,15 +4318,53 @@ export function REPL({
   // (visual cue) AND receives bare PgUp/PgDn + Alt+↑/↓ scroll input.
   // Defaults to chat so existing muscle memory keeps working.
   const [scrollFocus, setScrollFocus] = useState<'chat' | 'agent'>('chat');
+  // Past-session navigation offset for the agent thoughts pane. 0 = latest
+  // run; 1 = previous; etc. Driven by Alt+H (older) and Alt+L (newer)
+  // when scrollFocus is 'agent' AND no live session is in progress.
+  // When a new session-end appends a record while user is browsing an
+  // older one (offset > 0), the offset is bumped so the user stays on
+  // the same actual record they were reading.
+  const [pastSessionOffset, setPastSessionOffset] = useState(0);
+  useEffect(() => {
+    const unsub = subscribeRunsCache(() => {
+      // A new record was appended — if the user was browsing an older
+      // run (offset > 0), bump the offset so the same record stays
+      // visible. If they were at offset=0 ("follow latest"), keep them
+      // at 0 so they see the newest.
+      setPastSessionOffset(prev => (prev > 0 ? prev + 1 : 0));
+    });
+    return unsub;
+  }, []);
   useInput((input, key, event) => {
     if (!isFullscreenEnvEnabled()) return;
     if (!key.meta) return;
     if (input === '1') {
       setScrollFocus('chat');
       event.stopImmediatePropagation();
-    } else if (input === '2') {
+      return;
+    }
+    if (input === '2') {
       setScrollFocus('agent');
       event.stopImmediatePropagation();
+      return;
+    }
+    // Past-session navigation — only meaningful when no live session
+    // is in progress (otherwise the live one is rendered) and the
+    // agent pane is the scroll target.
+    if (sessionState === null && scrollFocus === 'agent') {
+      const totalRuns = getCachedRuns().length;
+      if (input === 'h') {
+        // older — clamped to total-1 (oldest record)
+        setPastSessionOffset(prev => Math.min(Math.max(0, totalRuns - 1), prev + 1));
+        event.stopImmediatePropagation();
+        return;
+      }
+      if (input === 'l') {
+        // newer — clamped to 0 (latest)
+        setPastSessionOffset(prev => Math.max(0, prev - 1));
+        event.stopImmediatePropagation();
+        return;
+      }
     }
   });
 
@@ -4779,7 +4818,7 @@ export function REPL({
     {feature('MESSAGE_ACTIONS') && isFullscreenEnvEnabled() && !disableMessageActions ? <MessageActionsKeybindings handlers={messageActionHandlers} isActive={cursor !== null} /> : null}
     <CancelRequestHandler {...cancelRequestProps} />
     <MCPConnectionManager key={remountKey} dynamicMcpConfig={dynamicMcpConfig} isStrictMcpConfig={strictMcpConfig}>
-      <CouncilSessionScreen session={sessionState} terminalColumns={transcriptCols} terminalRows={transcriptRows} overlayContent={centeredModal} modalScrollRef={modalScrollRef} agentScrollRef={agentScrollRef} scrollFocus={scrollFocus} chatContent={
+      <CouncilSessionScreen session={sessionState} terminalColumns={transcriptCols} terminalRows={transcriptRows} overlayContent={centeredModal} modalScrollRef={modalScrollRef} agentScrollRef={agentScrollRef} scrollFocus={scrollFocus} pastSessionOffset={pastSessionOffset} chatContent={
       <FullscreenLayout scrollRef={scrollRef} overlay={toolPermissionOverlay} bottomFloat={isBuddyEnabled() && companionVisible && !companionNarrow ? <CompanionFloatingBubble /> : undefined} modal={null} modalScrollRef={modalScrollRef} dividerYRef={dividerYRef} hidePill={!!viewedAgentTask} hideSticky={!!viewedTeammateTask} newMessageCount={unseenDivider?.count ?? 0} onPillClick={() => {
         setCursor(null);
         jumpToNew(scrollRef.current);

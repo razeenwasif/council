@@ -57,6 +57,7 @@ import {
   type SynthesizedPlan,
 } from './councilOrchestrator.js'
 import { emit as emitSessionEvent } from './sessionBus.js'
+import { stripThinkBlocks } from '../../utils/stripThinkBlocks.js'
 
 /**
  * Extract the headline from a council voice's structured output. Mirrors
@@ -644,7 +645,7 @@ async function proposalFromAgentTool(
   return {
     role: args.role,
     modelId: resolveRoleModel(args.role),
-    text: result.text,
+    text: stripThinkBlocks(result.text),
     durationMs: Date.now() - start,
     inputTokens: result.inputTokens,
     outputTokens: result.outputTokens,
@@ -677,7 +678,7 @@ async function synthesizerFromAgentTool(
   })
 
   return {
-    text: result.text,
+    text: stripThinkBlocks(result.text),
     modelId: 'synthesizer',
     durationMs: Date.now() - start,
     costUsd: result.costUsd,
@@ -736,7 +737,8 @@ async function reviewFromAgentTool(
     `Your original proposal (you are the ${args.role}):\n${args.proposal.text}\n\n` +
     `Executor's diff and summary:\n${args.execution.summary}\n\n` +
     `Review this diff. Your verdict must be one of: pass, nit, concern, block. ` +
-    `Begin your response with the verdict word, then a short reason.`
+    `Begin your response with the verdict word, then a short reason. ` +
+    `Length budget: your full response should be under ~200 words. Stop after the reason. Do not continue with extended analysis or "additional considerations."`
 
   const result = await invokeAgentTool({
     subagent_type: args.role,
@@ -749,12 +751,13 @@ async function reviewFromAgentTool(
     setMessages: args.setMessages,
   })
 
-  const verdict = parseVerdict(result.text)
+  const cleanText = stripThinkBlocks(result.text)
+  const verdict = parseVerdict(cleanText)
 
   return {
     role: args.role,
     verdict,
-    findings: [result.text],
+    findings: [cleanText],
     modelId: resolveRoleModel(args.role),
     durationMs: Date.now() - start,
     costUsd: result.costUsd,

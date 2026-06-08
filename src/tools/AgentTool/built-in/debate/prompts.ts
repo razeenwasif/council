@@ -50,6 +50,8 @@ Output format (mandatory):
 
 ## Press on the others for
 <bullet list — what you'd want the other voices to defend or attack. These shape what Round 2 will engage with.>
+
+**Length budget**: your full Round 1 response should be ~400-600 words total. Each section is tight: Position 2-4 sentences, Reasoning 3-6 sentences, Evidence 3-6 specific bullets, "Press on" 2-4 bullets. Stop after the last "Press on" bullet. Do not continue with summary, self-critique, or "additional thoughts." If you find yourself writing past the Press section, stop and submit.
 `
 
 /** Round 2 output format — voices respond to other voices' Round 1
@@ -74,6 +76,8 @@ Output format (mandatory):
 
 ## Confidence (1-5)
 <integer 1-5> — <one sentence justifying the number, especially noting if confidence went UP or DOWN since Round 1 and why>
+
+**Length budget**: your full Round 2 response should be ~350-550 words. Engaging with: 1 line. Argument: 3-6 sentences. Refined position: 2-4 sentences. Confidence: 1 sentence. Total ≤ Round 1's length — you're refining, not restating. Stop after the Confidence line. Do not continue with additional analysis, summary, or "thoughts on next steps."
 `
 
 // ──────────────────────────────────────────────────────────────────────
@@ -208,4 +212,14 @@ Output format (mandatory):
 ## Confidence + caveats
 <one paragraph — how confident this brief is in the convergent claim, given the voices' self-reported confidences (in the ## Confidence sections of their positions) and the strength of the Devil's Advocate's surviving objections>
 
-Style: terse, specific, position-citing. The brief is a research artifact — treat it like an internal memo, not a marketing summary. Numbers and specifics beat adjectives.`
+Style: terse, specific, position-citing. The brief is a research artifact — treat it like an internal memo, not a marketing summary. Numbers and specifics beat adjectives.
+
+**Length budget**: the complete brief should be ~800-1400 words total. Each section has a target:
+- Strongest convergent claim: ~120-180 words (one focused paragraph)
+- Surviving disagreements: 3-5 bullets, each 30-60 words
+- Testable predictions: 3-5 bullets, each 40-80 words
+- Open questions: 3-5 bullets, each 20-40 words
+- What this did NOT cover: ~80-120 words (one paragraph)
+- Confidence + caveats: ~80-150 words (one paragraph)
+
+STOP after the Confidence + caveats paragraph. The brief ends there. Do not continue with "Closing remarks," "Implementation guidance," "Recommendations for future work," or any other appended section. The orchestrator parses your output to a fixed schema; extra sections become noise that bloats the artifact and pushes you over the token cap.`

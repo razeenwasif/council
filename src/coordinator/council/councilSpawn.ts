@@ -240,6 +240,7 @@ export async function runCouncilFromToolContext(
       userPrompt: opts.userPrompt,
       emitStatus: opts.emitStatus ?? (() => {}),
       costCeilingUsd: opts.costCeilingUsd,
+      getCurrentCost: getTotalCost,
       memberTimeoutMs: opts.memberTimeoutMs,
       longTimeoutMs: opts.longTimeoutMs,
       adapters,

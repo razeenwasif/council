@@ -192,6 +192,9 @@ export interface CouncilInputs {
   /** Hard per-query cost ceiling. Pipeline aborts if accumulated cost
    *  exceeds this before the next stage. Defaults to $3. */
   costCeilingUsd?: number
+  /** Callback to retrieve the current global cost (used in deterministic
+   *  paths where spawns return 0 cost). */
+  getCurrentCost?: () => number
   /** Per-member spawn timeout (proposal, review). Defaults to 300s. Bumped
    *  from 60s → 120s → 180s → 300s across live runs as DeepSeek-class
    *  providers kept hitting the ceiling under load. Combined with the
@@ -562,34 +565,44 @@ async function withTimeout<T>(
 }
 
 class CostLedger {
-  private accumulated = 0
-  constructor(private readonly ceilingUsd: number) {}
+  private recorded = 0
+  private readonly startGlobalCost: number
+  constructor(
+    private readonly ceilingUsd: number,
+    private readonly getCurrentCost: () => number = () => 0,
+  ) {
+    this.startGlobalCost = getCurrentCost()
+  }
 
   /** Record a stage's cost. Throws if it would push past the ceiling. */
   recordOrThrow(stage: string, costUsd: number): void {
-    this.accumulated += costUsd
-    if (this.accumulated > this.ceilingUsd) {
-      throw new CouncilCostCeilingError(
-        this.ceilingUsd,
-        this.accumulated,
-        stage,
-      )
-    }
+    this.recorded += costUsd
+    this.throwIfOverCeiling(stage)
   }
 
   /** Pre-flight check — call before launching a stage you can't easily abort. */
   ensureHeadroomOrThrow(stage: string): void {
-    if (this.accumulated >= this.ceilingUsd) {
-      throw new CouncilCostCeilingError(
-        this.ceilingUsd,
-        this.accumulated,
-        stage,
-      )
-    }
+    this.throwIfOverCeiling(stage)
   }
 
   total(): number {
-    return this.accumulated
+    return this.bestEstimateAccumulated()
+  }
+
+  private bestEstimateAccumulated(): number {
+    const globalDelta = Math.max(0, this.getCurrentCost() - this.startGlobalCost)
+    return Math.max(this.recorded, globalDelta)
+  }
+
+  private throwIfOverCeiling(stage: string): void {
+    const accumulated = this.bestEstimateAccumulated()
+    if (accumulated >= this.ceilingUsd) {
+      throw new CouncilCostCeilingError(
+        this.ceilingUsd,
+        accumulated,
+        stage,
+      )
+    }
   }
 }
 
@@ -606,11 +619,12 @@ export async function runCouncil(
     costCeilingUsd = 3,
     memberTimeoutMs = 300_000,
     longTimeoutMs = 5 * 60_000,
+    getCurrentCost,
     adapters,
   } = inputs
 
   const start = Date.now()
-  const ledger = new CostLedger(costCeilingUsd)
+  const ledger = new CostLedger(costCeilingUsd, getCurrentCost)
 
   // ── Step 1: convene — spawn all 7 proposals in parallel ───────────
   emitStatus('Council convened — seven members proposing in parallel.')

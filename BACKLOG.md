@@ -39,7 +39,11 @@ Six artifacts in `src/utils/council/` (formatCost, withRetry, lruCache, clamp, p
 
 ## P2 — actively useful, not yet built
 
-### Fix cost-ceiling enforcement in runCouncil (mirrors the runDebate fix)
+### ✓ Fix cost-ceiling enforcement in runCouncil (mirrors the runDebate fix) — SHIPPED 2026-06-09
+
+**Shipped** as documented in the fix sketch below. `CouncilInputs.getCurrentCost?: () => number` added to `councilOrchestrator.ts`; `CostLedger` rewritten to accept the callback, snapshot `startGlobalCost` on construction, and use `max(recorded, globalDelta)` as the accumulated total via `bestEstimateAccumulated()`. `runCouncilFromToolContext` in `councilSpawn.ts` wires `getTotalCost` through. Three orchestrator tests added covering the per-spawn-cost path, the getCurrentCost path, and the default-to-noop preservation. Build clean. The deterministic AgentTool path's costUsd=0 no longer hides cost-ceiling overruns — the global tracker is consulted as a backstop.
+
+### Original entry (kept for context):
 
 **Symptom**: Council's `costCeilingUsd` default of $3 is enforced by `CostLedger.recordOrThrow(stage, p.costUsd)` — but in the deterministic AgentTool path, `costUsd` is always 0 (AgentTool.call doesn't expose flat per-call cost). So the ceiling never actually fires; a runaway council could quietly bill multiples of the cap.
 
@@ -50,10 +54,6 @@ Six artifacts in `src/utils/council/` (formatCost, withRetry, lruCache, clamp, p
 2. Update `CostLedger` in `councilOrchestrator.ts` to accept the callback and use `max(recorded, globalDelta)` as the accumulated total.
 3. Wire `getTotalCost` in `runCouncilFromToolContext` (`councilSpawn.ts`).
 4. Add 3 tests mirroring the debate test cases (per-spawn-cost path, getCurrentCost path, defaults-to-noop preservation).
-
-**Estimate**: ~30 minutes. Direct copy of the debate fix, just applied to a different orchestrator.
-
-**Why P2**: same risk surface as the debate bug — a stuck-spawn loop or runaway tool use could bill way past the configured cap before anyone notices. Council's $3 default is more forgiving than debate's $1, but the safety net is still off.
 
 ### Add pricing-table entries for shim provider models
 

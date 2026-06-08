@@ -875,6 +875,71 @@ describe('runCouncil — cost ceiling', () => {
       expect(ce.stage).toMatch(/proposal/)
     }
   })
+
+  test('aborts via getCurrentCost when per-spawn costUsd is 0 (deterministic-path bug fix)', async () => {
+    let pretendGlobalCost = 0
+    const expensive = happyAdapters({
+      spawnProposal: async ({ role }) => {
+        pretendGlobalCost += 0.4
+        return makeProposal(role, { costUsd: 0 })
+      },
+    })
+
+    await expect(
+      runCouncil({
+        userPrompt: 'x',
+        emitStatus: noopEmit(),
+        costCeilingUsd: 1.0,
+        getCurrentCost: () => pretendGlobalCost,
+        adapters: expensive,
+      }),
+    ).rejects.toThrow(CouncilCostCeilingError)
+  })
+
+  test('does NOT abort when getCurrentCost stays below ceiling', async () => {
+    let pretendGlobalCost = 0
+    const cheap = happyAdapters({
+      spawnProposal: async ({ role }) => {
+        pretendGlobalCost += 0.05
+        return makeProposal(role, { costUsd: 0 })
+      },
+    })
+
+    const result = await runCouncil({
+      userPrompt: 'x',
+      emitStatus: noopEmit(),
+      costCeilingUsd: 1.0,
+      getCurrentCost: () => pretendGlobalCost,
+      adapters: cheap,
+    })
+    expect(result.proposals).toHaveLength(7)
+  })
+
+  test('defaults to () => 0 when getCurrentCost not provided (legacy test behaviour preserved)', async () => {
+    const result = await runCouncil({
+      userPrompt: 'x',
+      emitStatus: noopEmit(),
+      costCeilingUsd: 0.001, // microscopic — would fire if anything was attributed
+      adapters: happyAdapters({
+        spawnProposal: async ({ role }) => makeProposal(role, { costUsd: 0 }),
+        spawnSynthesizer: async () => ({
+          text: 'plan',
+          modelId: 'm',
+          durationMs: 1,
+          costUsd: 0,
+        }),
+        spawnExecutor: async () => ({
+          diff: 'diff',
+          summary: 'summary',
+          modelId: 'm',
+          durationMs: 1,
+          costUsd: 0,
+        }),
+        spawnReview: async ({ role }) => makeReview(role, 'pass', { costUsd: 0 }),
+      }),
+    })
+    expect(result.proposals).toHaveLength(7)
+  })
 })
 
 // ──────────────────────────────────────────────────────────────────────

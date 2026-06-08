@@ -237,6 +237,230 @@ A list of TUI/render perf improvements surfaced in a 2026-06-07 review. Document
 
 None of these block anything; they're hygiene as opportunities arise.
 
+### Suppress `tools` field in OpenAI shim for models that don't declare tool capability
+
+**Symptom**: `phi4:14b` (and likely other completion-only Ollama models) reject any request with a `tools` field, returning `400: does not support tools`. Council's OpenAI-compat shim at `src/services/api/openaiShim.ts` sends `tools: [...]` on every request — even when the role has all tools disallowed and the array is effectively empty. The receiving model strictly checks the field's *presence*, not its contents, against its manifest's tool-capability declaration.
+
+**Discovered 2026-06-08** via `/voice-test synthesist phi4:14b-council "..."` — 0.2 s rejection from Ollama. Blocks Phi-4 14B from being a Council voice despite Phi-4's strong instruction-following capacity.
+
+**Work** (~1-2 h):
+1. Detect which models lack tool capability — either via per-model `agentModels[<tag>].supportsTools: false` setting OR a runtime probe of the Ollama `/api/show` endpoint at the start of each session.
+2. In the OpenAI shim's request builder, omit the `tools` field entirely (not just empty-array) when the target model doesn't support tools.
+3. Verify the orchestrator path still works — voices with disallowed tools currently produce only structured-text output; the shim never had a reason to suppress the field before but should be safe to.
+
+**Why P2**: Unblocks Phi-4 14B + future non-tool-declaring models as Council voices. Particularly relevant if Phi-4 14B turns out to be the right size for synthesist (the unanswered question from the 2026-06-08 iteration session). Also future-proofs Council for other strong-reasoning, no-tools open models that may appear.
+
+**Workaround until shipped**: skip non-tool-supporting models for Council voices; use them only for main-loop chat where the shim path is different.
+
+### Citation verification harness
+
+**Symptom**: even with arXiv MCP grounding the empiricist (when shipped), there's no automated check that the citations in a debate brief actually resolve. Prior runs have produced confident-sounding arXiv IDs that 404 — the model invented the ID from a plausible-looking date + index. A verifier loop catches these without any human read.
+
+**Work** (~2 h, depends on arXiv MCP being live first):
+1. After each `/discover` session-end, scan the brief + appendix for arXiv IDs via regex `\b\d{4}\.\d{4,5}\b`.
+2. Hit `https://arxiv.org/abs/<id>` for each (HEAD request, 5 s timeout); flag any that 404 or 503.
+3. Append `citationsVerified: { id: string; resolves: boolean; checkedAt: string }[]` to the telemetry record at `~/.openclaude/council-runs.jsonl`.
+4. Auto-attach a `/verdict verify incorrect "citations failed: <id1>, <id2>"` when ≥1 ID fails to resolve.
+
+**Why P2**: directly closes the "confident confabulation" failure mode. Strong thesis-methodology asset — turns a manual verification step into a deterministic check, exactly the kind of automation the paper argues for in its verification-layer claim.
+
+### Benchmark / regression harness
+
+**Symptom**: no way to answer "did my last prompt change improve brief quality?" without running a half-dozen `/discover` invocations by hand and reading each. The current iteration loop is anecdotal; the thesis needs reproducible measurement.
+
+**Work** (~3-4 h):
+1. Fixed `~/Research/benchmark-questions.jsonl` with 10-20 questions spanning the project's domains (PQC, GW SNR quantization, distributed graph algorithms, RAG-hallucination — whatever covers your thesis's hypothesis space).
+2. New slash command `/bench run [N]` fires each question through `/discover` (or `/council` — argument-toggleable) and captures the resulting telemetry record by reading `~/.openclaude/council-runs.jsonl` newest-N entries.
+3. Output: CSV at `~/.openclaude/bench/<timestamp>.csv` of (question, kind, durationMs, completed-voices, status-distribution, outcome, verdict-count, verdict-distribution).
+4. Optional follow-up: `/bench diff <run-A-ts> <run-B-ts>` to render a side-by-side comparison.
+
+**Why P2**: the thesis's evaluation chapter wants exactly this artifact — a deterministic, reproducible benchmark across prompt/model variants. Without it, claims about "routing X gives better briefs" remain vibes. The harness IS the evaluation methodology.
+
+### Investigate git context leakage into synthesist brief (data leak bug)
+
+**Symptom**: 2026-06-08 — a `/discover` brief with synthesist routed to `deepseek-r1:7b-council` emitted literal git commit SHAs from the current repo's history *inside the brief's "Strongest convergent claim" section*:
+
+> "NIST has initiated a standardization process (**39c6ce4 feat(council): synthesist debugging - strip-think + length-caps**…; **e142f94 fix(ui): first-render layout for scratchpad + tasks side panes**) targeting robust, quantum-resistant algorithms…"
+
+Those are real commit SHAs from the current Council session — `39c6ce4` and `e142f94` are commits we made earlier this same day. The synthesist's input should be ONLY (a) the user prompt and (b) the 8 voice positions — no git state, no environment, no file paths.
+
+**Why this matters**: synthesist + fan-out voices all have file-system tools (Read/Glob/Grep/Bash/Edit/Write) disallowed via the agent definitions (CONTEXT.md hard rule #20). The empiricist on `llama3.1:8b-council` was the only voice with potentially-tool-equipped role in this run; tool-stripping should have prevented any voice from reading git state.
+
+**Hypotheses to investigate** (in order of likelihood):
+1. **CLAUDE.md / context-file auto-injection** — Council may auto-include CLAUDE.md or other top-level context files in the agent prompt. If CLAUDE.md mentions recent commits OR if git log is in the prompt context somewhere, the synthesist would see and synthesize over it. Check `src/utils/contextInjection.ts` or equivalent.
+2. **Inherited `ToolUseContext`** — slash commands receive a `ToolUseContext` whose `options` may include cached state from earlier turns in the REPL session. If git log was emitted in scrollback and somehow got embedded, the synthesist might receive it as "additional context."
+3. **Empiricist tool-call escape** — `llama3.1:8b-council` empiricist might be using Read/Bash via some shim path that bypasses the role's `disallowedTools` list. Verify by inspecting empiricist's position text in the appendix of `~/Research/debates/2026-06-08-15-56-how-will-the-advent-of-practical-quantum.md` for any reference to commit hashes.
+4. **DeepSeek-R1 thinking-mode access** — R1 may have some prompt-construction quirk where its thinking step inspects something accessible. Less likely but worth ruling out by seeing if Nemo or other models also exhibit this on the same data.
+
+**Work** (~2-4 h to diagnose, depends on what we find):
+1. Cat the offending brief file in full; identify the EXACT origin of the SHAs (which voice's position contains them, or only the synthesist's section).
+2. Grep `~/.openclaude/council-runs.jsonl` for "39c6ce4" — find which voice's `outputFull` first contained the leak.
+3. Trace upstream from that voice's input — was the SHA in `prompt` or `output`?
+4. If from prompt: bug in context construction; fix in `buildResearcherPrompt` / `buildSynthesistPrompt`.
+5. If from output: bug in tool gating (a voice with tool access leaked).
+
+**Why P2**: data leak between Council's internal state (git history, file system) and the model's input/output is a *thesis-relevant integrity issue* — the paper's verification architecture assumes voices reason only over what's provided. If voices have backdoor access to repo state, the experimental design is contaminated. Worth diagnosing before more runs accumulate confusable telemetry.
+
+**Workaround until diagnosed**: don't route synthesist to `deepseek-r1:7b-council` — keep on `mistral-nemo:12b-council` which (in observed runs) doesn't exhibit this leak. The leak may be R1-specific (thinking-mode quirk) or may be present on Nemo too just unnoticed.
+
+### Verifier role for `/discover` briefs (Co-Scientist Reflection-agent minimal subset)
+
+**Symptom / motivation**: discovered 2026-06-08 — the synthesist on `mistral-nemo:12b-council` confidently confabulated "SIKE" as a current PQC adoption target. SIKE (Supersingular Isogeny Key Encapsulation) was *cryptographically broken* in July 2022 by Castryck-Decru (arxiv 2208.08178) and disqualified from NIST's final standardization. The synthesist had no signal to recognize this — none of the voice positions explicitly flagged SIKE as broken, and the model's parametric memory of "PQC candidates" included SIKE from older training data. **No layer in the current pipeline catches this class of error before the user (or external verifier) reads the brief.**
+
+This is the **minimal Co-Scientist Reflection-agent**, documented broadly in `CO-SCIENTIST.md`. It does NOT do Generation, Ranking (Elo), Evolution, Proximity, or Meta-review. It is purely a *post-synthesis fact-check pass* over the synthesist's brief.
+
+**Why P2**: directly produces a verification layer — the central architectural claim of the user's research thesis ("Information-Preserving Quantization of Domain-Specialist Fine-Tunes for Verification in Multi-Agent Scientific Reasoning Systems"). Right now Claude (this assistant) IS the verification layer; adding a local verifier role makes the verification step *internal to Council* and produces methodology evidence for "small local models + dedicated verifier ≥ small local models alone."
+
+**Complement to arXiv MCP** (separate P2 entry above): arXiv MCP closes confabulation at the empiricist *source* (so the brief never inherits fake citations); Verifier closes confabulation at the brief *output* (so even if upstream voices confabulate, the brief gets flagged). Both layers, working together, are the real fix.
+
+**Sequencing prerequisites** (do not start this before):
+1. Current routing experiments stabilized (in flight 2026-06-08).
+2. arXiv MCP shipped — verifier benefits from being able to check claims against real papers too, not just voice positions.
+
+**Architectural design choices**:
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| Role placement in pipeline | After `synthesistFromAgentTool` returns, before brief is written to disk | Verifier reads the just-produced brief + all 8 voice positions (r1 + r2) as context; emits notes that get appended to the brief file as a `## Verification Notes` section. |
+| Verifier model | `deepseek-r1:7b-council` (primary), Claude Opus when quota available (fallback) | R1's thinking-trace shape is well-suited to "examine claim X against evidence Y" reasoning. Empirically (this session) R1 was the one model whose factual content was reliably more grounded than its competitors. Mistral Nemo as backup local-judge if R1 fails on a specific run. |
+| Verifier prompt structure | "You are NOT a voice in the debate. You are a verifier. Read the brief and the appendix positions. Flag claims in the brief that: (a) contradict evidence in the appendix, (b) cite algorithms / papers / standards by name in ways that look suspect (e.g., 'SIKE' as a current standard), (c) make quantitative claims without grounding (e.g., specific dates, percentages, qubit counts) that the voice positions don't support. For each flag: quote the specific brief sentence, explain the concern, suggest a check the user could run." | Three failure modes specifically targeted: brief-vs-appendix contradiction, name-confabulation, ungrounded specificity. Each is a real failure observed in this session's runs. |
+| Verifier output format | Markdown subsection appended to the brief file:<br><br>```\n## Verification Notes\n\n### Suspect claims\n- **Claim**: "<verbatim brief quote>"\n  - **Concern**: <why suspect>\n  - **Suggested check**: <action user can take>\n```<br><br>If zero flags, emits "### No suspect claims found." instead. | Single-section append minimizes disruption. Empty-state is explicit so users know the verifier ran but found nothing (vs. "didn't run"). |
+| Voice positions input | Pass full text of all 8 positions (r1 + r2) + the synthesist's brief. Strip `<think>` blocks (already done by `stripThinkBlocks`). | Full context lets verifier check brief claims against the original voice evidence. |
+| Capture in telemetry | Extend `CouncilRunRecord.verification` field with the verifier's flagged claims + reasoning + verdict count. Separate from human `verifications` array. | Joined-to-run, queryable via /verdict list. Enables thesis-level analysis of "what % of briefs had ≥1 flag?" |
+| Tools disallowed | Same as fan-out voices: no Read/Glob/Grep/Edit/Write/Bash. Pure analysis. | Verifier reads the brief text given as input — doesn't go fishing the filesystem. |
+| Failure mode | Verifier output goes through `stripThinkBlocks` + the existing cap-hit detection. If verifier itself cap-hits or errors, brief is finalized WITHOUT verification notes + telemetry records `verification: { status: 'failed', reason: '<message>' }`. | Don't block brief output on verifier failure — verifier is an additive safety net, not a hard gate. |
+
+**Verifier prompt sketch** (the load-bearing part — design now, refine when implementing):
+
+```
+You are the Verifier. You are NOT one of the four voices that just debated.
+Your role is post-synthesis fact-checking.
+
+You will receive:
+  1. The Brief produced by the Synthesist.
+  2. The full text of all 8 voice positions (r1 + r2) that fed into it.
+
+Your job: identify claims in the Brief that are suspect. Apply these
+three lenses, in order:
+
+  (a) Appendix contradiction. Does any claim in the Brief contradict
+      evidence stated by a voice in the Appendix? If yes, flag.
+  (b) Named-entity confabulation. Does the Brief name specific
+      algorithms, papers, standards, organizations, products, or
+      dates that look like they might be invented? Standards bodies,
+      protocol names, and version numbers are especially error-prone.
+      Examples of red flags: "Falcon was standardized in 2024"
+      (drafted, not finalized as FIPS); "SIKE is being adopted"
+      (broken 2022); "RFC 9999 specifies X" (verify the RFC exists).
+  (c) Ungrounded specificity. Does the Brief assert a quantitative
+      claim (date, percentage, qubit count, key size, etc.) that
+      none of the voice positions justify? Flag the specific number.
+
+For each flagged claim, output:
+  - The verbatim sentence from the Brief
+  - One sentence on the specific concern
+  - One specific action the user could take to verify (search arxiv
+    for X, check the NIST CSRC page for Y, etc.)
+
+Do NOT rewrite the Brief. Do NOT propose corrections. Do NOT flag
+anything that is supported by an appendix voice (even if you'd phrase
+it differently). Conservative: when uncertain, do not flag.
+
+Output format (mandatory):
+
+## Verification Notes
+
+### Suspect claims
+<list, or the literal text "(none)" if zero flags>
+
+End your response immediately after the list. Length budget:
+~300-500 words across all flags combined. Two-three precise flags
+beats ten vague ones.
+```
+
+**Implementation work** (when prerequisites met, ~3-4 h):
+1. New file `src/tools/AgentTool/built-in/debate/verifierAgent.ts` — `BuiltInAgentDefinition` with the verifier prompt, fully tool-stripped (`disallowedTools` matches the other fan-out voices).
+2. New `VERIFIER_PROMPT` in `src/tools/AgentTool/built-in/debate/prompts.ts`.
+3. New `verifierFromAgentTool(args)` in `src/coordinator/council/debateSpawn.ts` — mirrors `synthesistFromAgentTool` signature, takes the brief text + all positions, returns the verification notes.
+4. Wire into `runDebate` after synthesist completes — extend the brief file write to append the verification section.
+5. Extend `CouncilRunRecord` (in `src/utils/councilTelemetry.ts`) with `verification?: { notes: string; flagCount: number; status: 'ok' | 'failed'; reason?: string }`.
+6. Update `PastSessionView` to render the verification section when present.
+7. New agentRouting entry: `verifier` → `deepseek-r1:7b-council` (or `claude-opus-4-7` when available).
+
+**What this does NOT solve** (intentionally — those are separate layers):
+- Doesn't fix the *cause* of confabulation in the voices themselves — that's arXiv MCP's job.
+- Doesn't produce new positions from critiques — that's Co-Scientist's Evolution agent (separate, larger work).
+- Doesn't rank positions by quality — that's the Elo tournament entry (also separate).
+
+These three (arXiv MCP, Verifier, Elo tournament) are independent additions, each closing a different gap. The Verifier is the simplest to ship and the most directly thesis-aligned.
+
+### Pairwise Elo tournament over `/discover` voices (Co-Scientist Ranking-agent minimal subset)
+
+**Symptom / motivation**: `/discover` produces 4 voice positions in r1 and 4 r2 responses, then a synthesist brief. The voices are evaluated only implicitly (the synthesist weights them subjectively, and human verification via `/verdict` is single-judge). There's no ordered measurement of "which voice produced the strongest position this round" — so we can't say "empiricist on llama3.1:8b consistently beats empiricist on qwen3:4b on prompts of class X," which is exactly the kind of evaluation chapter the thesis needs.
+
+This is a **minimal subset of the Co-Scientist Ranking-agent** documented in `CO-SCIENTIST.md`. It does NOT implement Evolution (deriving new hypotheses from winners), Proximity (clustering related hypotheses), or Meta-review. Those layer on later if/when this primitive proves useful.
+
+**Why P2**: directly produces a publishable evaluation artifact for the thesis — Elo trajectories per voice tagged with model routing become the quantitative evidence the paper needs for "routing X gives better positions on prompts of class Y." Gated on voice-quality stabilization (next P2 items: arXiv MCP for grounding, benchmark harness for input).
+
+**Sequencing prerequisites** (do not start this before):
+1. Voice routing stabilized — currently in flux (2026-06-08 baseline vs llama3.1:8b/mistral-nemo:12b A/B in progress).
+2. arXiv MCP shipped (closes confabulation gap; tournament over confabulators ranks fabrications equally and adds noise).
+3. Benchmark harness shipped (provides the fixed-question input for tournament-over-questions evaluation).
+
+**Architectural design choices** (decide now, even if implementation deferred):
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| Tournament structure | Round-robin, `C(4,2) = 6` pairs per round | 4 voices is small enough that bracket is wasteful; full round-robin gives complete pairwise data, parallelizable into 6 concurrent judge calls |
+| Judge mechanism | Single judge per pair (initially) | 3× cost of multi-judge isn't worth it until we see signal stability across runs; multi-judge with majority vote is a P3 extension if results are noisy |
+| Judge model | Claude Opus 4.7 when quota available; `mistral-nemo:12b-council` as local fallback | Mistral Nemo's schema discipline + voice-citation behavior makes it the best non-Claude judge in current fleet. Document this choice — judge model selection is itself a methodology variable |
+| Elo K-factor | 24 (FIDE-style adaptive: K=40 for ratings < 2100, K=24 for 2100-2399, K=10 for ≥2400) | Standard adaptive K; faster initial calibration, slower drift once stable |
+| Initial rating | 1500 per voice per debate | Stateless per-debate by default. Optional: persistent per-(role, model-tag) Elo accumulated across debates for the thesis's longitudinal data |
+| r1 vs r2 separation | Independent tournaments; capture r1-Elo and r2-Elo separately | r2 has different rules (must engage with others) so its quality criteria differ. Conflating them obscures the "did r2 actually refine, or just restate?" signal |
+| Tie/draw handling | Allow draws; judge prompt explicitly enumerates win/draw/lose | Forcing a binary choice on near-equal positions introduces spurious Elo deltas |
+| Storage | Extend `~/.openclaude/council-runs.jsonl` record with `tournament: { r1Elo: {role: rating}, r2Elo: {...}, judgments: [{a, b, winner, reasoning}] }` | Reuses the existing telemetry path; keeps tournament data joined to the run that produced it |
+| Persistent Elo (optional) | New file `~/.openclaude/voice-elo.jsonl` — one line per (role, model-tag) updated with K-factor across debates | Only enable when ≥20 debates accumulated; before that, per-debate Elo is more informative than noisy cumulative |
+
+**Judge prompt sketch** (the most load-bearing part of the design):
+
+```
+You are judging two positions on the same research question.
+
+Question: <verbatim user prompt>
+Position A (by <role_a>, round <N>):
+<position A text>
+
+Position B (by <role_b>, round <N>):
+<position B text>
+
+Compare on three axes (weight equally):
+  1. Factual accuracy — claims that are verifiably correct beat plausible-but-confabulated ones.
+  2. Mechanistic reasoning — concrete causal chains beat hand-wavy generalities.
+  3. Specificity — named algorithms / metrics / standards beat vague references.
+
+Output STRICTLY:
+  verdict: "A" | "B" | "draw"
+  reasoning: <1-3 sentences, name the specific axis where the winner pulled ahead>
+
+Do NOT cite the role names in your reasoning — judge on content only.
+```
+
+**Why each axis**: factual-accuracy = the thesis's core concern (verification of multi-agent reasoning); mechanistic-reasoning = differentiates rigorous from rhetorical; specificity = the failure mode local models exhibit (Gemma's "vague PQC overview" vs Methodologist's "ε_phys < 10⁻³ threshold").
+
+**Implementation work** (when prerequisites met, ~4-6 h):
+1. New module `src/coordinator/council/debateTournament.ts` — exports `runTournament(positions: Position[], judgeModel: string)` → returns judgments + Elo deltas.
+2. Integration point: `debateSpawn.ts` after r1 collection, again after r2 collection. Sequential to the existing flow; doesn't change synthesist behavior.
+3. New session-bus event: `tournament-result` (so the agent thoughts pane could render the bracket live in a future extension).
+4. Extend `CouncilRunRecord` (`src/utils/councilTelemetry.ts`) with the `tournament` field.
+5. Optional `/elo-leaderboard` slash command — reads `voice-elo.jsonl`, prints per-(role, model-tag) rating.
+
+**What this does NOT solve** (intentionally — those are later phases):
+- Evolution: deriving better positions from tournament winners + critique. The full Co-Scientist payoff comes from this; ranking alone just measures.
+- Proximity / clustering: identifying when two voices independently arrived at the same position.
+- Meta-review: producing a tournament-wide synthesis that goes beyond what the synthesist already does.
+
+Track those as Co-Scientist Phase 2+ when this minimal ranking proves useful.
+
 ### Session-only file list in the `git` side pane
 
 **Symptom**: the `git` pane's file list is sourced from `git status --porcelain`, so it shows any file that was already dirty before the session started — not just files touched by tools in the current session. Honest as "what would I commit right now," but slightly off as "what did the agent change this turn." The wider integration (file-list lives in the same pane as the count summary) shipped 2026-06-08 after the original right-column `files` widget was consolidated into the left `git` pane.
@@ -306,6 +530,8 @@ Default opt-in. Append-only, like `usage.jsonl`. Provides immediate value as a d
 **Estimate**: ~4–6 hours. Mostly piping existing in-memory `CouncilResult` to disk plus a new slash command.
 
 #### Phase 2 — Eval harness *(prerequisite for any prompt/model change)*
+
+**Note (2026-06-08)**: a scaled-down precursor shipped as the `/voice-test` slash command — runs ONE role + ONE model + ONE prompt in isolation (~15-30 s) and writes a JSONL record to `~/.openclaude/voice-tests.jsonl`. Good for testing a single voice's compliance with a prompt change. The full Phase 2 below (replay logged council/discover RUNS through modified prompts/models, scored against original outcomes) is still the right end-state but `/voice-test` covers the high-frequency "does this voice still work" case in the meantime.
 
 Pick 30–50 logged runs with clear outcomes. Replay them with modified prompts or model bindings and measure delta. Two replay modes:
 

@@ -344,8 +344,13 @@ export async function* runAgent({
     permissionMode,
   )
 
-  // Resolve per-agent provider routing from settings
-  const providerOverride = resolveAgentProvider(
+  // Resolve per-agent provider routing. Caller-set
+  // `toolUseContext.options.providerOverride` wins — this lets
+  // /voice-test (and any future per-call experiment) target a specific
+  // model without modifying settings.json. Falls back to the settings-
+  // based agentRouting lookup for normal Council dispatch (where
+  // callers don't set the override).
+  const providerOverride = toolUseContext.options.providerOverride ?? resolveAgentProvider(
     agentName,
     agentDefinition.agentType,
     getInitialSettings(),

@@ -23,6 +23,7 @@ import ctx_viz from './commands/ctx_viz/index.js'
 import doctor from './commands/doctor/index.js'
 import note from './commands/note/index.js'
 import verdict from './commands/verdict/index.js'
+import voiceTest from './commands/voice-test/index.js'
 import onboardGithub from './commands/onboard-github/index.js'
 import knowledge from './commands/knowledge/index.js'
 import memory from './commands/memory/index.js'
@@ -324,6 +325,7 @@ const COMMANDS = memoize((): Command[] => [
   model,
   note,
   verdict,
+  voiceTest,
   onboardGithub,
   outputStyle,
   remoteEnv,

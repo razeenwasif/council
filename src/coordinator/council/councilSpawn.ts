@@ -122,6 +122,8 @@ export interface RunSingleAgentOptions {
   canUseTool?: CanUseToolFn
   setMessages?: SetMessagesFn
   signal?: AbortSignal
+  /** Per-call model override; passed through to `invokeAgentTool`. */
+  providerOverride?: { model: string; baseURL: string; apiKey: string }
 }
 
 export async function runSingleAgentFromToolContext(
@@ -166,6 +168,7 @@ export async function runSingleAgentFromToolContext(
       signal: ac.signal,
       parentToolUseId,
       setMessages: opts.setMessages,
+      providerOverride: opts.providerOverride,
     })
 
     if (opts.setMessages && parentToolUseId) {
@@ -779,6 +782,12 @@ export interface InvokeAgentToolInputs {
    *  message we forward into the transcript. */
   parentToolUseId?: string
   setMessages?: SetMessagesFn
+  /** Per-call model override. When set, threads through
+   *  `ToolUseContext.options.providerOverride` so `runAgent.ts:348`
+   *  uses it instead of the settings-based `agentRouting` lookup.
+   *  Used by `/voice-test` to target a specific model without
+   *  modifying `~/.openclaude/settings.json`. */
+  providerOverride?: { model: string; baseURL: string; apiKey: string }
 }
 
 export interface InvokeAgentToolResult {
@@ -786,6 +795,14 @@ export interface InvokeAgentToolResult {
   inputTokens: number
   outputTokens: number
   costUsd: number
+  /** Inferred completion status. Currently `'length'` when the model
+   *  emitted ≥99% of the requested `max_tokens` (cap-hit heuristic) or
+   *  `'stop'` otherwise. The OpenAI shim reads the real `finish_reason`
+   *  at `src/services/api/openaiShim.ts:1416`, but threading it back
+   *  through the AgentTool layer would require more invasive surgery;
+   *  the heuristic is precise enough to distinguish cap-hit from clean
+   *  termination for the voice-isolation harness's needs. */
+  finishReason: 'stop' | 'length'
 }
 
 /**
@@ -839,10 +856,19 @@ export async function invokeAgentTool(
   // The LLM-coordinator path supplies both naturally because openclaude's
   // tool-use loop populates them before dispatch; from a slash-command
   // hook context, neither may be set yet.
-  const patchedContext = ensureAbortController(
+  const baseContext = ensureAbortController(
     ensureMainLoopModel(args.toolUseContext),
     args.signal,
   )
+  // Per-call `providerOverride` (used by /voice-test). When set, this
+  // wins at `runAgent.ts:348` over the settings-based agentRouting
+  // lookup. When unset, downstream code runs unchanged.
+  const patchedContext = args.providerOverride
+    ? {
+        ...baseContext,
+        options: { ...baseContext.options, providerOverride: args.providerOverride },
+      }
+    : baseContext
 
   // AgentTool.call returns a Promise<{ data }> — a single terminal result,
   // not a stream. Race it against the abort signal so the orchestrator's
@@ -979,8 +1005,16 @@ export async function invokeAgentTool(
   // tracker accumulates it elsewhere. Leave at 0 — runCouncil's cost
   // ceiling won't be triggered by this path until we surface real cost.
   const costUsd = 0
+  // Cap-hit heuristic: when finish_reason='length' the model emitted
+  // exactly max_tokens. Real source at openaiShim.ts:1416 is not
+  // surfaced back through the AgentTool layer; inferring from
+  // outputTokens vs the requested cap is precise enough for the
+  // voice-isolation harness.
+  const requestedMax = parseInt(process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS ?? '16384', 10)
+  const finishReason: 'stop' | 'length' =
+    outputTokens > 0 && outputTokens >= requestedMax - 5 ? 'length' : 'stop'
 
-  return { text, inputTokens, outputTokens, costUsd }
+  return { text, inputTokens, outputTokens, costUsd, finishReason }
 }
 
 // ──────────────────────────────────────────────────────────────────────

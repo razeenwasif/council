@@ -35,6 +35,7 @@ Things deliberately not built yet, grouped by priority. Each item names what's m
 - [ ] Center workspace pane stops scrolling after a run completes
 - [ ] `/voice-test` harness loses partial output on cap-hit
 - [ ] Session-only file list in the `git` side pane
+- [ ] Long-running Council process leaks v8 heap (sweep OOM after ~3 h)
 - [ ] Remove vim mode / Remove voice mode / Remove unused model providers / Remove unrelated slash commands
 - [ ] Migrate config paths `.openclaude/` → `.council/`
 
@@ -998,6 +999,31 @@ Do NOT cite the role names in your reasoning — judge on content only.
 - Meta-review: producing a tournament-wide synthesis that goes beyond what the synthesist already does.
 
 Track those as Co-Scientist Phase 2+ when this minimal ranking proves useful.
+
+### [ ] Long-running Council process leaks v8 heap — sweep OOM after ~3 h
+
+**Symptom** (2026-06-09, late session): `/discover-sweep` running against 500 physics prompts crashed at ~128/500 (~25.6% done, ~3 h elapsed) with the v8 fatal error `Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory`. System had 28 GB free — this was a v8 *process-level* heap-out-of-memory, not a system OOM.
+
+The default v8 heap on this machine is **4 GB** (Node auto-tunes for system RAM — `v8.getHeapStatistics().heap_size_limit` reports 4144 MB on a fresh process). So the crash means Council retained >4 GB of v8-managed objects across 128 /discover runs. Each /discover spawns 6 voices (hypothesizer / empiricist / devilsAdvocate / methodologist + synthesist + verifier); 128 × 6 = 768 voice outputs accumulated somewhere.
+
+**Workaround shipped 2026-06-09** as `bin/council` self-re-exec with `--max-old-space-size=16384` (16 GB). Self-bootstrapping via `COUNCIL_HEAP_BUMPED` sentinel + signal forwarding (SIGINT/SIGTERM/SIGHUP → child) so the TUI's Ctrl+C still works. Override via `COUNCIL_HEAP_MB` env var (e.g. `=8192` on machines with less RAM, `=24576` if even 16 GB OOMs eventually). This is a *bandaid* — buys longer runs but the leak still exists.
+
+**Diagnostic plan** (~2-3 h):
+1. Add a `/heapdump` slash command that calls `v8.writeHeapSnapshot()` to a path. Trivial; node has the primitive.
+2. Reproduce: relaunch with the bumped heap, fire `/discover-sweep` against the seed file, snapshot at run 0, 50, 100. Three .heapsnapshot files.
+3. Load into Chrome DevTools "Memory" tab. Compare retainer trees — what's growing linearly with run count?
+4. Most likely candidates by hypothesis:
+   - **REPL.tsx message-history retention** — every `voice-output` event lands in scrollback; with 6 voices × 95 s × 128 runs that's a lot. Check if there's any ring-buffer cap on `chatHistorySource`.
+   - **Agent thoughts pane** — keeps per-voice output for the run currently in view. When `runCouncilFromToolContext` → `runDebateFromToolContext` complete and the panel collapses, is the per-voice state actually released?
+   - **Telemetry collector** — `councilTelemetryCollector` subscribes to the session bus and appends to JSONL; check whether it ALSO keeps an in-memory buffer.
+   - **Streaming chunk buffers** — partial chunk state kept around longer than necessary.
+   - **WeakMap pane tags** were already audited in commit `dd15090` and that path was actually the FIX (replaced a leaky `Map<uuid, pane>`) — but maybe other Map<>s remained.
+
+5. The fix is whatever subsystem the retainer tree fingers. Most likely a cap on scrollback retention with a "tail N" policy (e.g. last 1000 messages), OR explicit `null`-out of per-voice state after a run completes.
+
+**Why P3 (not P2)**: workaround (heap bump) is in place + diagnostic effort isn't blocking the sweep. But filing because the underlying leak will reappear on longer runs and bigger fleets — at the observed leak rate of ~31 MB/run, the 16 GB ceiling buys ~520 runs (covers a full 500-prompt sweep with ~600 MB margin); 8 GB only made ~260, hence the bump.
+
+**Why now**: discovered during physics specialist Phase 2 Council bootstrap — directly blocked progress, even if --skip-completed makes resume painless.
 
 ### [ ] Session-only file list in the `git` side pane
 

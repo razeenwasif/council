@@ -532,6 +532,52 @@ Length budget: same as other voices (400-600 words r1, 350-550 r2).
 - Cross-domain coverage — one specialist per fleet at a time. Multi-domain debates would need orchestrator-level extension (route to different specialists per question type).
 - Replacing the fine-tuned model is left as a routing change in settings.json — the orchestrator doesn't need to change.
 
+### Domain Specialist *training pipeline* — scaffolded 2026-06-09 at `~/Research/council-specialists/`
+
+**Status**: PIPELINE READY, no models trained yet. Tracks the training side that produces the model the Council-side Domain Specialist role consumes. Companion to the entry above.
+
+**What was built (commit a brand-new repo at `~/Research/council-specialists/`)**:
+
+- `README.md` — full architecture rationale with quantitative breakdown of each throughput/quality optimization (Unsloth 2-5× kernels, DoRA over LoRA +3-7% reasoning quality, sequence packing ~50% throughput, NEFTune +1-2%, 8-bit paged AdamW, BF16, gradient checkpointing). Memory budget table for 4090 (16-19 GB used, 5-8 GB headroom). Wall-clock estimate: 6-10 h per domain.
+- `configs/{base,physics,math,cs}.yaml` — hierarchical YAML; domain configs inherit from `base.yaml` (Mistral-7B-Instruct-v0.3 base + LoRA r=16 + DoRA + paged 8-bit Adam + sequence packing + NEFTune). Per-domain overrides for learning rate, NEFTune α (lower for math precision), and source mix.
+- `data/prepare_{physics,math,cs}.py` — fetches HF datasets + applies domain-specific formatters → unified Mistral-Instruct chat-template JSONL. Idempotent (skips re-assembly unless `--force`). Sources documented in README:
+  - Physics: camel-ai/physics, TIGER-Lab/TheoremQA (physics filter), OpenStax (local), arXiv abstracts (local), Council-bootstrap.
+  - Math: MetaMathQA, NuminaMath-1.5, OpenMathInstruct-2, ProofPile-2 (Lean), Council-bootstrap.
+  - CS: Magicoder-OSS, NVIDIA OpenCodeInstruct, camel-ai/computer_science, TheoremQA (CS filter), Council-bootstrap.
+- `data/council_synthetic.py` — **the thesis-distinguishing piece**. Iterates `~/.openclaude/council-runs.jsonl` Council telemetry, filters /discover briefs by domain-keyword regex, emits each (prompt, brief) pair as training data. Specialist learns the *structure* Council expects from a Domain Specialist. Self-referential bootstrap loop.
+- `shared/unsloth_sft/train.py` — real training impl (Unsloth `FastLanguageModel.from_pretrained` + DoRA + sequence packing + NEFTune + paged 8-bit Adam + cosine schedule + auto-resume from latest checkpoint).
+- `shared/unsloth_sft/{neftune,data_collator,utils}.py` — stand-alone NEFTune hook (verification fallback), reference packing collator, config loader.
+- `scripts/train.py` — thin entry point (plantclef shim pattern); `--smoke-test` runs ~100 examples in ~10-15 min.
+- `scripts/eval.py` — MMLU domain subsets + GSM8K filled in; HumanEval/MBPP/MATH/physreasonbench/council_integration stubbed.
+- `scripts/export_ollama.py` — LoRA → merge → GGUF (via llama.cpp `convert_hf_to_gguf.py`) → Modelfile → `ollama create`. End-to-end deployment.
+
+**Milestones to track** (mark each ✓ as completed):
+
+- [ ] HF_TOKEN set in `~/Research/council-specialists/.env`; Mistral-7B-Instruct-v0.3 license accepted on HuggingFace Hub
+- [ ] Unsloth installed (`pip install "unsloth[cu121-torch240] @ git+https://github.com/unslothai/unsloth.git"`)
+- [ ] `llama.cpp` checked out at `~/Research/llama.cpp` and built (required for `export_ollama.py`)
+- [ ] Smoke test: `python scripts/train.py --config configs/physics.yaml --smoke-test` — ~100 examples, ~50 steps, ~10-15 min on 4090. Verifies pipeline end-to-end. Confirms peak VRAM is in budget + no NaN losses.
+- [ ] Council-synthetic data assembled per domain via `python data/council_synthetic.py --domain physics --output data/raw/council_synthetic_physics.jsonl` (and math + cs). Needs Council telemetry to have ≥500 domain-relevant `/discover` runs first.
+- [ ] First real train: physics. ~6-10 h on 4090.
+- [ ] Eval physics adapter: `python scripts/eval.py --adapter outputs/physics/adapter --domain physics`.
+- [ ] Export physics: `python scripts/export_ollama.py --adapter outputs/physics/adapter --target physics-specialist:7b-council`.
+- [ ] Wire `physics-specialist:7b-council` into `~/.openclaude/settings.json` `agentModels` + `agentRouting.domain_specialist`.
+- [ ] Run `/discover` with the physics specialist on a thesis-relevant prompt. Log to `THESIS_FINDINGS.md`.
+- [ ] Repeat smoke-train-eval-export-integrate for math + CS.
+- [ ] (Stretch) Comparative `/discover` between specialists on the same cross-domain prompt — feeds the methodology chapter's "specialist coverage" section.
+
+**Why P2**: this is the path to the thesis's headline experimental result. Without it, the Domain Specialist role (entry above) has nowhere to plug a real fine-tuned model — would have to stay stubbed with `gemma4:26b-council` indefinitely. The pipeline is also a thesis-methodology artifact in itself (the dataset assembly recipe + the Council-bootstrap idea both appear in the methodology chapter).
+
+**Deferred sub-tasks** (within `~/Research/council-specialists/BACKLOG.md` once created):
+- HumanEval / MBPP execution sandbox for `scripts/eval.py`
+- Continued-pretraining stage for highly technical domains (CPT on raw arXiv before SFT)
+- Multi-domain expert routing (single base + 3 swappable adapters at inference)
+- DoRA vs LoRA-FA empirical ablation — single side-experiment
+- Stochastic Weight Averaging of last 5 checkpoints as a free post-training quality boost
+- Bio + chem domain specialists (deferred to later thesis chapters per user direction)
+
+**Cross-references**: companion to the Domain Specialist role entry directly above (Council-side integration). Together they close the loop from "fine-tune a model" to "Council uses it in /discover and verifier catches its specific failure modes."
+
 ### Counterfactual / Falsifier role for `/discover`
 
 **Symptom / motivation**: in observed `/discover` runs (this session's Q-Day debates especially), the four voices often produce a **consensus echo** — all four substantially agree on the convergent claim, with only stylistic framing differences. The synthesist then writes a brief about that convergence. There's no voice whose job is to **attack the consensus from outside**: devils_advocate counters *specific positions* but doesn't take the meta-position "the convergent claim is wrong; what would we expect if so?"

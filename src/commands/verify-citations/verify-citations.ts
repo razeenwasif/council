@@ -63,8 +63,60 @@ interface CitationCheck {
   url: string
   status: number | 'timeout' | 'error'
   resolves: boolean
+  /** Actual paper title fetched from arxiv.org. Null if extraction failed. */
+  actualTitle?: string | null
+  /** Title window from the brief near the cited ID. Null if no nearby text found. */
+  claimedContext?: string | null
+  /** Jaccard similarity between claimedContext and actualTitle (0..1). */
+  titleSimilarity?: number | null
+  /** True when the cited context appears to match the actual paper.
+   *  Set on titleSimilarity >= TITLE_MATCH_THRESHOLD; false on lower;
+   *  null when one or both inputs are unavailable. */
+  titleMatch?: boolean | null
   checkedAt: string
   errorMessage?: string
+}
+
+// Jaccard token-overlap threshold for considering a brief's claimed
+// title and the actual paper title a match. Picked from real data:
+//   - Mismatch case (failure mode #13, falcon-3 2026-06-09): Jaccard
+//     ≈ 0.07 between "Characterizing Verbatim Short-Term Memory in
+//     Neural Language Models" (actual) and the 240-char window
+//     around the ID in the brief — clearly below threshold.
+//   - Paraphrase case (hypothetical, "the LLaMA paper" → actual
+//     "LLaMA: Open and Efficient Foundation Language Models"):
+//     Jaccard ≈ 0.14 — comfortably above 0.1.
+// 0.1 is the tightest threshold that still tolerates colloquial
+// paraphrasing of paper titles. Lower → more false positives on
+// legitimate paraphrased cites; higher → more false negatives on
+// real mismatches.
+const TITLE_MATCH_THRESHOLD = 0.1
+const CONTEXT_WINDOW_CHARS = 240
+
+const STOP_WORDS = new Set([
+  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'has',
+  'have', 'in', 'into', 'is', 'it', 'its', 'of', 'on', 'or', 'over',
+  'than', 'that', 'the', 'these', 'this', 'those', 'to', 'with', 'we',
+  'using', 'used', 'use', 'via', 'about', 'how', 'what', 'when', 'where',
+  'why', 'how',
+])
+
+function tokenize(s: string): Set<string> {
+  return new Set(
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, ' ')
+      .split(/\s+/)
+      .filter(t => t.length >= 3 && !STOP_WORDS.has(t)),
+  )
+}
+
+function jaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 && b.size === 0) return 0
+  let intersection = 0
+  for (const t of a) if (b.has(t)) intersection++
+  const union = a.size + b.size - intersection
+  return union === 0 ? 0 : intersection / union
 }
 
 function latestBriefPath(): string | null {
@@ -92,22 +144,54 @@ function extractArxivIds(content: string): string[] {
   return [...ids].sort()
 }
 
+/**
+ * Extract the arxiv-served paper title from the abs-page HTML. The
+ * format is `<title>[<id>] <Title text></title>` — we lift the
+ * portion after the `]` and trim.
+ */
+function extractArxivTitleFromHtml(html: string): string | null {
+  const match = html.match(/<title>\s*\[[\d.v]+\]\s*([\s\S]+?)\s*<\/title>/i)
+  if (!match) return null
+  // Collapse any internal whitespace runs to a single space.
+  return match[1]!.replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * Pull a window of text from the brief around the first occurrence of
+ * the cited ID. Used as the "claimed" side of the title-match check —
+ * model-emitted titles + author lines typically appear within ~240
+ * characters of the cited ID.
+ */
+function extractClaimedContext(content: string, id: string): string | null {
+  const idx = content.indexOf(id)
+  if (idx === -1) return null
+  const start = Math.max(0, idx - CONTEXT_WINDOW_CHARS)
+  const end = Math.min(content.length, idx + id.length + CONTEXT_WINDOW_CHARS)
+  return content.slice(start, end)
+}
+
 async function checkArxivId(id: string, timeoutMs: number): Promise<CitationCheck> {
   const url = `https://arxiv.org/abs/${id}`
   const checkedAt = new Date().toISOString()
   const controller = new AbortController()
   const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs)
   try {
+    // Use GET (not HEAD) so we can inspect the title in the response
+    // body. Bandwidth cost is ~50KB per check; for typical briefs with
+    // ≤10 IDs this is negligible vs the latency of an extra round-trip.
     const res = await fetch(url, {
-      method: 'HEAD',
+      method: 'GET',
       signal: controller.signal,
       redirect: 'follow',
     })
+    const html = res.ok ? await res.text() : ''
+    const actualTitle = res.ok ? extractArxivTitleFromHtml(html) : null
     return {
       id,
       url,
       status: res.status,
       resolves: res.ok,
+      actualTitle,
       checkedAt,
     }
   } catch (err) {
@@ -206,10 +290,28 @@ function parseFlags(raw: string): { briefPath?: string; timeoutMs: number } | { 
 }
 
 function fmtCheck(c: CitationCheck): string {
-  const tag = c.resolves ? 'OK' : 'FAIL'
   const status =
     typeof c.status === 'number' ? `HTTP ${c.status}` : c.status.toUpperCase()
-  return `  [${tag}] ${c.id}  (${status})  ${c.url}`
+  // Failure modes (in increasing severity):
+  //   FAIL      — ID does not resolve at all (404 / timeout / network error)
+  //   MISMATCH  — ID resolves but the brief's claimed title/context does NOT
+  //               match the actual paper (failure mode #13 — real-ID/false-
+  //               context binding)
+  //   OK        — ID resolves AND title check passed (or no claimed title
+  //               text was found near the ID to compare against)
+  let tag: string
+  if (!c.resolves) tag = 'FAIL'
+  else if (c.titleMatch === false) tag = 'MISMATCH'
+  else tag = 'OK'
+
+  const lines = [`  [${tag}] ${c.id}  (${status})  ${c.url}`]
+  if (tag === 'MISMATCH') {
+    if (c.actualTitle) lines.push(`         actual:  ${c.actualTitle}`)
+    if (c.titleSimilarity !== null && c.titleSimilarity !== undefined) {
+      lines.push(`         match:   ${(c.titleSimilarity * 100).toFixed(0)}% token overlap (threshold ${(TITLE_MATCH_THRESHOLD * 100).toFixed(0)}%)`)
+    }
+  }
+  return lines.join('\n')
 }
 
 export const call: LocalCommandCall = async (args, _context) => {
@@ -262,20 +364,57 @@ export const call: LocalCommandCall = async (args, _context) => {
   lines.push(`  Checking with ${parsed.timeoutMs}ms timeout...`)
   lines.push('')
 
-  // Check in parallel — arxiv.org rate-limits aggressively but HEAD
-  // requests at small batches are tolerated.
+  // Check in parallel — arxiv.org rate-limits aggressively but small
+  // batches of GETs (~10 IDs) are tolerated.
   const checks = await Promise.all(ids.map(id => checkArxivId(id, parsed.timeoutMs)))
+
+  // For each resolved ID, compare the actual paper title against the
+  // text in the brief near the cited ID — catches failure mode #13
+  // (real-ID / false-context binding) where the ID resolves but
+  // corresponds to a different paper than the brief claims.
+  for (const c of checks) {
+    if (!c.resolves || !c.actualTitle) {
+      c.titleMatch = null
+      c.titleSimilarity = null
+      c.claimedContext = null
+      continue
+    }
+    const claimed = extractClaimedContext(content, c.id)
+    c.claimedContext = claimed
+    if (!claimed) {
+      c.titleMatch = null
+      c.titleSimilarity = null
+      continue
+    }
+    const sim = jaccard(tokenize(claimed), tokenize(c.actualTitle))
+    c.titleSimilarity = sim
+    c.titleMatch = sim >= TITLE_MATCH_THRESHOLD
+  }
+
   for (const c of checks) lines.push(fmtCheck(c))
 
   const failures = checks.filter(c => !c.resolves)
+  const mismatches = checks.filter(c => c.resolves && c.titleMatch === false)
+  const clean = checks.filter(c => c.resolves && c.titleMatch !== false)
   lines.push('')
-  if (failures.length === 0) {
-    lines.push(`  All ${checks.length} arXiv IDs resolved cleanly.`)
+  if (failures.length === 0 && mismatches.length === 0) {
+    lines.push(`  All ${checks.length} arXiv IDs resolved cleanly with title-match.`)
   } else {
-    lines.push(
-      `  ${failures.length}/${checks.length} arXiv ID${failures.length === 1 ? '' : 's'} failed to resolve.`,
-    )
-    lines.push(`  Likely confabulated IDs: ${failures.map(f => f.id).join(', ')}`)
+    if (failures.length > 0) {
+      lines.push(
+        `  ${failures.length}/${checks.length} arXiv ID${failures.length === 1 ? '' : 's'} failed to resolve.`,
+      )
+      lines.push(`    Likely confabulated IDs: ${failures.map(f => f.id).join(', ')}`)
+    }
+    if (mismatches.length > 0) {
+      lines.push(
+        `  ${mismatches.length}/${checks.length} arXiv ID${mismatches.length === 1 ? '' : 's'} resolved BUT title does NOT match the brief's context.`,
+      )
+      lines.push(`    Likely failure-mode #13 (real-ID/false-context binding): ${mismatches.map(m => m.id).join(', ')}`)
+    }
+    if (clean.length > 0) {
+      lines.push(`  ${clean.length} citation${clean.length === 1 ? '' : 's'} passed all checks.`)
+    }
   }
 
   // Best-effort telemetry attachment

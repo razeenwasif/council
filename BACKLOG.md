@@ -2,9 +2,56 @@
 
 Things deliberately not built yet, grouped by priority. Each item names what's missing, why it was deferred, and a sketch of the work.
 
+## Status legend
+
+- `[ ]` not started
+- `[~]` in progress / partially shipped
+- `[x]` done — left in place for provenance
+- `(P2/P3/P4)` priority — P2 = actively useful, not yet built; P3 = cleanup carryover from pre-v1; P4 = speculative future
+- Bullet-level `✓` markers inside Done sub-sections track individual items within a feature area (kept for granular provenance)
+- `~strikethrough~` blocks labeled "Original entry (kept for context)" preserve the pre-ship description for historical reference; do not normalise
+
+## At-a-glance checklist
+
+**In progress / partially shipped:**
+- [~] (P2) Council prompts ↔ local-Gemma adherence — fix #2 (tool-strip fan-out) shipped; fix #1 (executor prompt) pending
+- [~] (P2) Domain Specialist *training pipeline* — scaffolded at `~/Research/council-specialists/`; smoke test pending
+- [~] (P4) Self-improving council — Phase 1 (telemetry) shipped; Phases 2-5 pending
+
+**Top P2 — not started:**
+- [ ] MCP integrations for the research path (arXiv, Wolfram Alpha, code execution; Tier 2: Semantic Scholar, Memory)
+- [ ] Domain Specialist role for `/discover` (consumes the pipeline above)
+- [ ] Verifier role for `/discover` briefs (Co-Scientist Reflection minimal subset)
+- [ ] Counterfactual / Falsifier role for `/discover`
+- [ ] Cross-Disciplinary Bridge role for `/discover`
+- [ ] Pairwise Elo tournament over `/discover` voices
+- [ ] Benchmark / regression harness
+- [ ] Evaluate Google TurboQuant for Council KV-cache compression
+- [ ] Local PDF cache + BGE-M3 semantic index for empiricist
+- [ ] TUI render-perf — measurement-gated optimizations
+
+**P3 — cleanup carryover:**
+- [ ] MCP tool-call compatibility audit across local model fleet
+- [ ] Center workspace pane stops scrolling after a run completes
+- [ ] `/voice-test` harness loses partial output on cap-hit
+- [ ] Session-only file list in the `git` side pane
+- [ ] Remove vim mode / Remove voice mode / Remove unused model providers / Remove unrelated slash commands
+- [ ] Migrate config paths `.openclaude/` → `.council/`
+
+**P4 — speculative:**
+- [ ] Council memory across sessions
+- [ ] Council voting weights (subsumed by self-improving Phase 3)
+- [ ] Per-prompt member swap / Cost budget per session / Council mode for read-only queries
+- [ ] True N×M grid TUI with full per-voice panes
+- [ ] Animated stage transitions in council mode session view
+
+**Done (10 entries):** see the inline `[x]` markers — the `## Done` section at the top of the file groups pre-v1 work; `[x]` entries scattered through P2/P3 capture items shipped during 2026-06-08/09 iteration (cost-ceiling, shim pricing, length caps, think-strip, tool-suppress flag, citation verifier, git-context leak fix).
+
+---
+
 ## Done
 
-### v1 scaffold + deterministic-default
+### [x] v1 scaffold + deterministic-default
 
 - ✓ **Deterministic orchestrator is the default** — `runCouncilFromToolContext` replaces the LLM-coordinator-with-strict-prompt path. Verified end-to-end in a live session (7 voices fan out, executor writes file, reviewers vote, 9/9 tests pass). Integration patches in `councilSpawn.ts` (`ensureMainLoopModel`, `ensureAbortController`, robust result parsing, `synthesizeToolUseSummary` fallback) plus `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` in `bin/council` plus `queryGuard.forceEnd()` after the REPL hook. `COUNCIL_LLM_COORDINATOR=1` is the opt-OUT escape hatch.
 - ✓ **Tester, Security, Performance seats** — council went from 4 → 5 → 7 voices. Quorum math scaled (consensus ≥5/7, revision ≥3/7).
@@ -15,7 +62,7 @@ Things deliberately not built yet, grouped by priority. Each item names what's m
 - ✓ **`/council run <prompt>`** — explicit deterministic-orchestrator invocation, distinct from the default flow.
 - ✓ **`/router llm` classifier wired** — real gemini-3.5-flash call with timeout, AbortController, stricter ambiguity-rejecting parse, full heuristic fallback.
 
-### Live UX overhaul (latest session)
+### [x] Live UX overhaul (latest session)
 
 - ✓ **Per-arrival proposal/review previews** — `▎ Critic (gpt-4.1-mini): <headline>` streams as each voice lands instead of dumping all at once. Includes resolved model id in parens via `resolveRoleModel()`.
 - ✓ **Stage-done emits** — `✓ Synthesizer done (12.5s)` / `✓ Executor done (3m 3s) — Files created: ...` between long single-agent stages so the spinner is never silent for >a few seconds.
@@ -31,7 +78,7 @@ Things deliberately not built yet, grouped by priority. Each item names what's m
 - ✓ **Council telemetry Phase 1 (outcome + verification capture)** — `~/.openclaude/council-runs.jsonl` appended by `councilTelemetryCollector` (a session-bus subscriber, no orchestrator changes). `/verdict outcome` labels runs, `/verdict verify` attaches verifier verdicts (the hook for thesis-relevant external-critic data). Records carry per-voice model + output preview, synthesis + execution text, capped fields for storage hygiene. Subsequent phases of the original "self-improving council" entry (Phase 2 eval harness, Phase 3 verdict calibration, Phase 4 prompt evolution, Phase 5 model-routing learning) stay deferred — they were gated on this data substrate. See `src/utils/councilTelemetry.ts`, `src/utils/councilTelemetryCollector.ts`, `src/commands/verdict/`.
 - ✓ **Tool-stripping for fan-out voices** — added `Read`/`Glob`/`Grep` to `disallowedTools` across 9 fan-out role definitions (council: skeptic/critic/tester/security/performance + debate: hypothesizer/empiricist/devilsAdvocate/methodologist). Closes the small-model tool-call loop trap that blew past `CLAUDE_CODE_MAX_OUTPUT_TOKENS` on Gemma 12b → Phi-4-mini → Qwen 4b. Done unconditionally (not conditional on routed model) because the project committed to local-only Council voices and these review roles never needed file access anyway. Originally tracked under the "Council prompts ↔ local-Gemma adherence" P2 entry — fix #2 ("Empty allowedTools") landed as the cheaper unconditional variant.
 
-### Verified end-to-end with real council-authored code
+### [x] Verified end-to-end with real council-authored code
 
 Six artifacts in `src/utils/council/` (formatCost, withRetry, lruCache, clamp, parseQueryString w/ revision pass, sanitizePath, debounce, once). The parseQueryString and debounce runs exercised the full block→revision→retry path with all 7 voices reporting.
 
@@ -39,7 +86,7 @@ Six artifacts in `src/utils/council/` (formatCost, withRetry, lruCache, clamp, p
 
 ## P2 — actively useful, not yet built
 
-### ✓ Fix cost-ceiling enforcement in runCouncil (mirrors the runDebate fix) — SHIPPED 2026-06-09
+### [x] Fix cost-ceiling enforcement in runCouncil (mirrors the runDebate fix) — SHIPPED 2026-06-09
 
 **Shipped** as documented in the fix sketch below. `CouncilInputs.getCurrentCost?: () => number` added to `councilOrchestrator.ts`; `CostLedger` rewritten to accept the callback, snapshot `startGlobalCost` on construction, and use `max(recorded, globalDelta)` as the accumulated total via `bestEstimateAccumulated()`. `runCouncilFromToolContext` in `councilSpawn.ts` wires `getTotalCost` through. Three orchestrator tests added covering the per-spawn-cost path, the getCurrentCost path, and the default-to-noop preservation. Build clean. The deterministic AgentTool path's costUsd=0 no longer hides cost-ceiling overruns — the global tracker is consulted as a backstop.
 
@@ -55,7 +102,7 @@ Six artifacts in `src/utils/council/` (formatCost, withRetry, lruCache, clamp, p
 3. Wire `getTotalCost` in `runCouncilFromToolContext` (`councilSpawn.ts`).
 4. Add 3 tests mirroring the debate test cases (per-spawn-cost path, getCurrentCost path, defaults-to-noop preservation).
 
-### ✓ Add pricing-table entries for shim provider models — SHIPPED 2026-06-09
+### [x] Add pricing-table entries for shim provider models — SHIPPED 2026-06-09
 
 **Shipped** in `src/utils/modelCost.ts`:
 1. Added `SHIM_PROVIDER_COSTS: Record<string, ModelCosts>` map with entries for DeepSeek (chat + reasoner), Gemini 3.5 Flash/Pro, Qwen 3.6-Plus, Mistral Large/Medium, OpenAI GPT-4.1-mini + 4o-mini. Per-million-token rates verified against provider pricing pages 2026-06-09.
@@ -87,7 +134,7 @@ Six artifacts in `src/utils/council/` (formatCost, withRetry, lruCache, clamp, p
 
 **Why P2**: actively misleading. A user looking at `/spend --models` and thinking "wow, deepseek is expensive" would be drawing the wrong conclusion.
 
-### MCP integrations for the research path
+### [ ] MCP integrations for the research path
 
 Five MCPs were evaluated against this project's needs. The two tiers below were the survivors — the rest were either redundant with existing tools (web search/fetch, sequential thinking, filesystem MCPs) or only relevant if scope expands (PubMed, GitHub MCP). See `CO-SCIENTIST.md` for context on why these specific capabilities are load-bearing for the planned hypothesis-loop architecture.
 
@@ -132,7 +179,7 @@ Five MCPs were evaluated against this project's needs. The two tiers below were 
 - *Risks*: state divergence between MCP and in-process state; vendor lock-in; data model coupling.
 - *Estimate*: not yet — sequence after `CO-SCIENTIST.md` step 5 (Evolution agent) at the earliest.
 
-### ✓ Add explicit length caps to council + debate role prompts — SHIPPED 2026-06-08
+### [x] Add explicit length caps to council + debate role prompts — SHIPPED 2026-06-08
 
 All council + debate role prompts now carry explicit "Length budget" + "STOP after [last section]" directives. Targets: council voices 400-700 words, council synth 800-1200, debate r1 400-600, debate r2 350-550, debate brief 800-1400, council review <200. Caps fire on Claude and small models that respect instructions (Phi, R1, Qwen). Caveat: Gemma 4 family (12B, 26B) **ignores length caps** at the synthesist scale — same architectural quirk visible across both model sizes. Root cause behind the synthesist rerouting to `deepseek-r1:7b-council` documented under "Mixed local-only routing baseline" in CONTEXT.md project history.
 
@@ -156,7 +203,7 @@ All council + debate role prompts now carry explicit "Length budget" + "STOP aft
 
 **Workaround until shipped**: `CLAUDE_CODE_MAX_OUTPUT_TOKENS=12288` (set 2026-06-08) — voices fit, synthesist often truncates anyway but at least the appendix is preserved.
 
-### ✓ Strip `<think>` blocks from voice output at the orchestrator layer — SHIPPED 2026-06-08
+### [x] Strip `<think>` blocks from voice output at the orchestrator layer — SHIPPED 2026-06-08
 
 Implemented in `src/utils/stripThinkBlocks.ts` + applied at all five orchestrator return paths (`researcherFromAgentTool`, `synthesistFromAgentTool`, `proposalFromAgentTool`, `synthesizerFromAgentTool`, `reviewFromAgentTool`). Handles closed `<think>…</think>` blocks AND unclosed (truncated) blocks; falls back to empty when only thinking was emitted. Confirmed working with R1 + Qwen 3 voices — telemetry previews and brief appendix now show clean position text, no scratch work.
 
@@ -185,7 +232,7 @@ Implemented in `src/utils/stripThinkBlocks.ts` + applied at all five orchestrato
 
 **Workaround until shipped**: `CLAUDE_CODE_MAX_OUTPUT_TOKENS=32768` (bumped 2026-06-08) absorbs the bloat at the cap layer. Brief content will include thinking verbatim. Acceptable for iteration; not acceptable for the paper.
 
-### Council prompts ↔ local-Gemma adherence
+### [~] Council prompts ↔ local-Gemma adherence
 
 **Symptom**: when council/discover voices are routed to local Gemma 4 models (e4b, 12b) via Ollama's OpenAI-compatible endpoint, two failure modes appear consistently:
 
@@ -217,7 +264,7 @@ The repo's coordinator architecture already assumes per-voice tools — there's 
 - Modelfile params: `num_ctx 16384`, `num_predict 4096`, `temperature 0.1`, `top_k 64`, `repeat_penalty 1.2`
 - `env.CLAUDE_CODE_MAX_OUTPUT_TOKENS=65536` (raised twice from 32K → 64K → 65K trying to outrun the loop; once tool-call loops are killed, can drop back to default)
 
-### TUI render-perf — measurement-gated optimizations
+### [ ] TUI render-perf — measurement-gated optimizations
 
 A list of TUI/render perf improvements surfaced in a 2026-06-07 review. Documented here so we don't lose them; **do NOT speculatively ship these** — the rule is measure first, then pick the one(s) the data justifies. Listed in execution order, with each later item gated on the previous.
 
@@ -247,7 +294,7 @@ A list of TUI/render perf improvements surfaced in a 2026-06-07 review. Document
 
 None of these block anything; they're hygiene as opportunities arise.
 
-### MCP tool-call compatibility audit across local model fleet — TWO distinct failure modes observed
+### [ ] MCP tool-call compatibility audit across local model fleet — TWO distinct failure modes observed
 
 **Symptom / motivation**: 2026-06-08 — empiricist role with arxiv MCP integration enabled tested across three local models:
 - `llama3.1:8b-council`: **cap-hit, tool-call loop** (attempted invocation, Ollama shim format mismatch, retry loop until 24K cap exhausted)
@@ -311,7 +358,7 @@ After capturing, the fix is one of:
 
 Status: data-gathering deferred to next session; investigation tracked here.
 
-### Center workspace pane stops scrolling after a run completes
+### [ ] Center workspace pane stops scrolling after a run completes
 
 **Symptom** (2026-06-08, user-reported): after a `/voice-test` (and likely any slash-command) run completes, the center workspace / REPL pane no longer responds to PageUp / PageDown / arrow scroll input. Issuing `/copy all` temporarily restores scrolling — a one-off workaround that strongly suggests a focus / re-render issue rather than a content / overflow issue.
 
@@ -331,7 +378,7 @@ If `focusedInputDialog` is set to a value OTHER than `'tool-permission'` (and no
 
 **Why not P1**: not blocking the Phase 1 sweep or thesis work. Triggered after each run but recoverable in one keystroke.
 
-### ✓ Suppress `tools` field in OpenAI shim for models that don't declare tool capability — SHIPPED 2026-06-08
+### [x] Suppress `tools` field in OpenAI shim for models that don't declare tool capability — SHIPPED 2026-06-08
 
 **Shipped** as a per-model `supportsTools?: boolean` field on `agentModels[<tag>]` in `~/.openclaude/settings.json`. The OpenAI shim looks up the flag via `getInitialSettings()` at the tool-conversion site in `openaiShim.ts:1883`; when `false`, the entire tools block is skipped before the request is built. Also tightened the error classifier (`openaiErrorClassification.ts:isToolCompatibilityMessage`) to match Ollama's "does not support tools" wording so the existing self-heal retry path catches misconfigured models as a backstop.
 
@@ -343,7 +390,7 @@ Set `supportsTools: false` on the 5 known-bad models: `phi4:14b-council`, `maths
 
 **Discovered 2026-06-08** via `/voice-test synthesist phi4:14b-council "..."` — 0.2 s rejection from Ollama. Blocks Phi-4 14B from being a Council voice despite Phi-4's strong instruction-following capacity.
 
-### `/voice-test` harness loses partial output on cap-hit (NEW — discovered 2026-06-08)
+### [ ] `/voice-test` harness loses partial output on cap-hit (NEW — discovered 2026-06-08)
 
 **Symptom**: when a voice cap-hits during a `/voice-test` invocation, the harness records the API error string (`"Claude's response exceeded the 24576 output token maximum…"`) as `output` and the actual accumulated content is discarded. Observed during the Phase 1 pilot — `olmo-3:7b-council` ran for 250s generating >24K tokens; we know FROM the Ollama log it produced ~28K tokens, but the JSONL record contains only the 162-character error message. This loses the most diagnostic signal: *what was the model rambling about* (verbose-on-topic vs runaway-gibberish vs topic-drift).
 
@@ -355,7 +402,7 @@ Set `supportsTools: false` on the 5 known-bad models: `phi4:14b-council`, `maths
 
 **Why P2**: blocks classification of the most interesting Phase 1 failure mode (length-cap noncompliance). Currently we can detect cap-hit but can't say *what kind of failure* it was — that's the difference between "verbose model, recoverable via stricter cap" and "broken model, exclude from fleet." Both diagnoses feed the thesis methodology chapter directly.
 
-### ✓ Citation verification harness — SHIPPED 2026-06-09
+### [x] Citation verification harness — SHIPPED 2026-06-09
 
 **Shipped** as `/verify-citations` slash command. Scope: arXiv IDs only (this iteration). Author-name confabulations (e.g. "Yang & Hodgkiasz, 2023" — actual case from the quantization-calibration brief) require a different lookup strategy and stay deferred to a v2.
 
@@ -373,7 +420,7 @@ Set `supportsTools: false` on the 5 known-bad models: `phi4:14b-council`, `maths
 
 **Symptom**: even with arXiv MCP grounding the empiricist (when shipped), there's no automated check that the citations in a debate brief actually resolve. Prior runs have produced confident-sounding arXiv IDs that 404 — the model invented the ID from a plausible-looking date + index. A verifier loop catches these without any human read.
 
-### Benchmark / regression harness
+### [ ] Benchmark / regression harness
 
 **Symptom**: no way to answer "did my last prompt change improve brief quality?" without running a half-dozen `/discover` invocations by hand and reading each. The current iteration loop is anecdotal; the thesis needs reproducible measurement.
 
@@ -385,7 +432,7 @@ Set `supportsTools: false` on the 5 known-bad models: `phi4:14b-council`, `maths
 
 **Why P2**: the thesis's evaluation chapter wants exactly this artifact — a deterministic, reproducible benchmark across prompt/model variants. Without it, claims about "routing X gives better briefs" remain vibes. The harness IS the evaluation methodology.
 
-### Local PDF cache + BGE-M3 semantic index for empiricist (RAG complement to arXiv MCP)
+### [ ] Local PDF cache + BGE-M3 semantic index for empiricist (RAG complement to arXiv MCP)
 
 **Symptom / motivation**: arXiv MCP gives the empiricist live search but no *persistent semantic memory*. Every `/discover` on a thesis-relevant prompt re-hits arxiv.org for the same papers — slow, rate-limited, and offline-fragile. Worse: there's no way for the empiricist to say "this prompt is similar to a paper I have already read carefully" because there's no local representation of what *has* been read. Today's failure mode (falcon-3 cited "Yang & Hodgkiasz, 2023" — fabricated authors) would be reduced if the empiricist could anchor citations against a *cached* local corpus instead of regenerating from parametric memory under prompt pressure.
 
@@ -420,7 +467,7 @@ The gap is specifically **semantic retrieval over a persistent local corpus**, n
 
 **Origin**: filed 2026-06-09 after external multi-agent-system advice (GPT + Gemini, separately, gave nearly-identical "use BGE-M3 + vector store" recommendations). The other half of their advice (switch to AutoGen/CrewAI, swap Llama-3 in as Planner) was directly contradicted by Phase 1 sweep data and not adopted. The retrieval-layer idea is the one piece worth extracting.
 
-### ✓ Investigate git context leakage into synthesist brief (data leak bug) — DIAGNOSED + SHIPPED 2026-06-09
+### [x] Investigate git context leakage into synthesist brief (data leak bug) — DIAGNOSED + SHIPPED 2026-06-09
 
 **Diagnosis**: confirmed the leak by tracing the offending brief (`~/Research/debates/2026-06-08-15-56-how-will-the-advent-of-practical-quantum.md`) against `~/.openclaude/council-runs.jsonl`. The runId is `acb2144d`. The SHAs leaked through the **devils_advocate** voice on `deepseek-r1:7b-council` (NOT the synthesist as the original entry assumed — the synthesist propagated content the upstream voice produced). The voice's `prompt` field did NOT contain the SHAs — they came through `baseSystemContext` injection from `src/context.ts:96-103`'s `gitStatus` block which includes "Recent commits:\n${log}".
 
@@ -457,7 +504,7 @@ Those are real commit SHAs from the current Council session — `39c6ce4` and `e
 
 **Workaround until diagnosed**: don't route synthesist to `deepseek-r1:7b-council` — keep on `mistral-nemo:12b-council` which (in observed runs) doesn't exhibit this leak. The leak may be R1-specific (thinking-mode quirk) or may be present on Nemo too just unnoticed.
 
-### Domain Specialist role for `/discover` (and optionally `/council`)
+### [ ] Domain Specialist role for `/discover` (and optionally `/council`)
 
 **Symptom / motivation**: the thesis's central architectural claim is that **domain-specialist fine-tuned quantized models slot into the multi-agent council as one of the voices** — locally hosted, narrowly scoped, complementary to frontier generalists. Council currently has no role slot for this; the 4-voice debate (hypothesizer / empiricist / devils_advocate / methodologist) is all generalist analytical lenses. Adding a `domain_specialist` role creates the experimental scaffold the paper requires.
 
@@ -532,7 +579,7 @@ Length budget: same as other voices (400-600 words r1, 350-550 r2).
 - Cross-domain coverage — one specialist per fleet at a time. Multi-domain debates would need orchestrator-level extension (route to different specialists per question type).
 - Replacing the fine-tuned model is left as a routing change in settings.json — the orchestrator doesn't need to change.
 
-### Domain Specialist *training pipeline* — scaffolded 2026-06-09 at `~/Research/council-specialists/`
+### [~] Domain Specialist *training pipeline* — scaffolded 2026-06-09 at `~/Research/council-specialists/`
 
 **Status**: PIPELINE READY, no models trained yet. Tracks the training side that produces the model the Council-side Domain Specialist role consumes. Companion to the entry above.
 
@@ -578,7 +625,7 @@ Length budget: same as other voices (400-600 words r1, 350-550 r2).
 
 **Cross-references**: companion to the Domain Specialist role entry directly above (Council-side integration). Together they close the loop from "fine-tune a model" to "Council uses it in /discover and verifier catches its specific failure modes."
 
-### Evaluate Google TurboQuant for Council KV-cache compression (and as a thesis-comparable claim)
+### [ ] Evaluate Google TurboQuant for Council KV-cache compression (and as a thesis-comparable claim)
 
 **Discovered 2026-06-09** via the user surfacing it ("can we make use of Google's latest TurboQuant algorithm?"). Verified real: presented at ICLR 2026 (April), targeted Q2 2026 official implementation, Tether's QVAC SDK 0.12.0 reportedly ships an early integration. Sources collected in `LITERATURE_REVIEW.md §3.6`.
 
@@ -614,7 +661,7 @@ Length budget: same as other voices (400-600 words r1, 350-550 r2).
 
 **Cross-references**: lit-review entry at `LITERATURE_REVIEW.md §3.6` (Council) + `literature_review.tex §3.6` (paper) + `references.bib` entry `google2026turboquant`.
 
-### Counterfactual / Falsifier role for `/discover`
+### [ ] Counterfactual / Falsifier role for `/discover`
 
 **Symptom / motivation**: in observed `/discover` runs (this session's Q-Day debates especially), the four voices often produce a **consensus echo** — all four substantially agree on the convergent claim, with only stylistic framing differences. The synthesist then writes a brief about that convergence. There's no voice whose job is to **attack the consensus from outside**: devils_advocate counters *specific positions* but doesn't take the meta-position "the convergent claim is wrong; what would we expect if so?"
 
@@ -716,7 +763,7 @@ than fabricated counterfactual.
 - May produce its own confabulations when imagining alternatives. Mitigation: the "conservative bias / empty output preferred" instruction in the prompt + explicit "no clear convergent claim → stop" branch.
 - Doesn't catch all consensus failures — only ones where there IS a clear convergent claim. Truly diverse debates may have nothing to counterfactually attack, which is also signal worth surfacing.
 
-### Cross-Disciplinary Bridge role for `/discover` (Tier 2 — niche but thesis-relevant)
+### [ ] Cross-Disciplinary Bridge role for `/discover` (Tier 2 — niche but thesis-relevant)
 
 **Symptom / motivation**: research questions spanning multiple fields lose context when each voice reasons only within the obvious domain. The user's thesis topic (GW physics + quantization + multi-agent systems) is *exactly* such a cross-field intersection — three distinct literatures, each with established techniques that the others may benefit from importing. Currently no voice's job is to bridge.
 
@@ -794,7 +841,7 @@ beat 5 weak ones.
 - Auto-activation heuristic is not in scope (manual opt-in only). A future router could detect multi-domain questions and activate.
 - Bridge confabulation is its own failure mode — the prompt's conservative "say no adjacency if you can't ground it" is the only mitigation without arXiv MCP gating.
 
-### Verifier role for `/discover` briefs (Co-Scientist Reflection-agent minimal subset)
+### [ ] Verifier role for `/discover` briefs (Co-Scientist Reflection-agent minimal subset)
 
 **Symptom / motivation**: discovered 2026-06-08 — the synthesist on `mistral-nemo:12b-council` confidently confabulated "SIKE" as a current PQC adoption target. SIKE (Supersingular Isogeny Key Encapsulation) was *cryptographically broken* in July 2022 by Castryck-Decru (arxiv 2208.08178) and disqualified from NIST's final standardization. The synthesist had no signal to recognize this — none of the voice positions explicitly flagged SIKE as broken, and the model's parametric memory of "PQC candidates" included SIKE from older training data. **No layer in the current pipeline catches this class of error before the user (or external verifier) reads the brief.**
 
@@ -885,7 +932,7 @@ beats ten vague ones.
 
 These three (arXiv MCP, Verifier, Elo tournament) are independent additions, each closing a different gap. The Verifier is the simplest to ship and the most directly thesis-aligned.
 
-### Pairwise Elo tournament over `/discover` voices (Co-Scientist Ranking-agent minimal subset)
+### [ ] Pairwise Elo tournament over `/discover` voices (Co-Scientist Ranking-agent minimal subset)
 
 **Symptom / motivation**: `/discover` produces 4 voice positions in r1 and 4 r2 responses, then a synthesist brief. The voices are evaluated only implicitly (the synthesist weights them subjectively, and human verification via `/verdict` is single-judge). There's no ordered measurement of "which voice produced the strongest position this round" — so we can't say "empiricist on llama3.1:8b consistently beats empiricist on qwen3:4b on prompts of class X," which is exactly the kind of evaluation chapter the thesis needs.
 
@@ -952,7 +999,7 @@ Do NOT cite the role names in your reasoning — judge on content only.
 
 Track those as Co-Scientist Phase 2+ when this minimal ranking proves useful.
 
-### Session-only file list in the `git` side pane
+### [ ] Session-only file list in the `git` side pane
 
 **Symptom**: the `git` pane's file list is sourced from `git status --porcelain`, so it shows any file that was already dirty before the session started — not just files touched by tools in the current session. Honest as "what would I commit right now," but slightly off as "what did the agent change this turn." The wider integration (file-list lives in the same pane as the count summary) shipped 2026-06-08 after the original right-column `files` widget was consolidated into the left `git` pane.
 
@@ -960,23 +1007,23 @@ Track those as Co-Scientist Phase 2+ when this minimal ranking proves useful.
 
 **Why P3**: the current widget isn't *wrong* — status flags and paths are accurate — it's just slightly misaligned with how the user mentally framed it. Pure quality-of-life.
 
-### Remove vim mode
+### [ ] Remove vim mode
 **Coupling**: `VimTextInput.tsx` is referenced by `PromptInput.tsx`, `textInputTypes.ts`, and the input test suite.
 **Work**: replace `VimTextInput` usage with the default text input, drop the import from `textInputTypes.ts`, remove vim-specific test cases, delete `src/vim/`, `src/hooks/useVimInput.ts`, `src/components/VimTextInput.tsx`. Run tests.
 
-### Remove voice mode
+### [ ] Remove voice mode
 **Coupling**: 10+ importers across hooks, components, `ConfigTool`, slash commands.
 **Work**: bigger lift than vim. Probably worth keeping until there's a specific reason to strip it — it's not actively in the way.
 
-### Remove unused model providers
+### [ ] Remove unused model providers
 **Coupling**: each of `glm/kimi/llama/minimax/nemotron/xai/xiaomi-mimo` has paired entries in `src/integrations/{vendors,brands,gateways}/` and tests. **Keep `mistral` and `qwen`** — actively used by council seats (Security/Performance and Tester).
 **Work**: pick one provider as a pilot, trace and remove all coupled entries, run `bun test` + `bun run integrations:check`. If clean, repeat for the others.
 
-### Remove unrelated slash commands
+### [ ] Remove unrelated slash commands
 **Examples**: `/install-github-app`, `/install-slack-app`, `/onboard-github`, `/chrome`, `/desktop`, `/mobile`, `/benchmark`, `/dream`, `/good-claude`.
 **Work**: low-risk one-by-one removal — each command is its own file and an entry in the `COMMANDS` array. Delete the file, remove the import + array entry, build, repeat.
 
-### Migrate config paths `.openclaude/` → `.council/`
+### [ ] Migrate config paths `.openclaude/` → `.council/`
 **Why deferred**: the rebrand pass renamed user-facing strings but intentionally left `.openclaude*` config paths alone. Renaming now would orphan the user's existing Anthropic OAuth (`~/.openclaude/.credentials.json`), the council provider profile (`~/.openclaude/.openclaude-profile.json`), settings (`~/.openclaude/settings.json`, `~/.openclaude.json`), shell snapshots, plugins, backups, etc. ~10 test files assert on the literal strings `.openclaude` / `.openclaude-profile.json`, and the `getClaudeConfigHomeDir()` logic in `src/utils/envUtils.ts` has migration handling for `~/.claude` → `~/.openclaude` that would need a third step.
 
 **Work**:
@@ -993,13 +1040,13 @@ Track those as Co-Scientist Phase 2+ when this minimal ranking proves useful.
 
 ## P4 — speculative future
 
-### Council memory across sessions
+### [ ] Council memory across sessions
 Council members lose context between sessions. Persistent role memory (one shared scratchpad per role across a project) would let the Skeptic remember past gotchas, the Architect remember past design decisions, etc. Hook into the existing `agentMemory.ts` infra in `src/tools/AgentTool/`.
 
-### Council voting weights
+### [ ] Council voting weights
 Right now ≥3 blocks (out of 7) triggers revision. Could weight by role (Skeptic 1.5×, etc.) or by past accuracy (track which member's verdicts predicted actual bugs). *Now subsumed as Phase 3 of the self-improving council entry below — leaving the standalone item here as a pointer.*
 
-### Self-improving council
+### [~] Self-improving council
 
 Close the feedback loop: the council currently runs once, emits a diff, and forgets everything. Outcome data (was the diff accepted? did it need a revision pass? did the user reject it? did tests fail later?) is thrown away. With that signal captured, the council can improve along three axes — voting calibration, prompt evolution, and model routing — without retraining anything.
 
@@ -1080,17 +1127,17 @@ Build **Phase 1 first and stop there until you've accumulated 30+ runs of teleme
 
 **Total estimate if all phases ship**: ~3 weeks of focused work, but spread over months because Phases 3+ are gated on telemetry accumulation.
 
-### Per-prompt member swap
+### [ ] Per-prompt member swap
 `/council swap skeptic <model-id>` to temporarily replace the skeptic's model for the next prompt — useful when debugging or running A/B comparisons.
 
-### Cost budget per session
+### [ ] Cost budget per session
 `/council budget <usd>` to cap total council spend in the current session. Auto-disable when exceeded. (Per-query ceiling already implemented in `runCouncil`; session-wide is a separate layer. Depends on per-call cost capture from the "usage tracking" P2 work above.)
 
-### Council mode for read-only queries
+### [ ] Council mode for read-only queries
 Currently council is overkill for explanations. But "explain this codebase" could benefit from a debate-style council where each member gives a different framing. Different prompt set, different default tools — needs design.
 
-### True N×M grid TUI with full per-voice panes
+### [ ] True N×M grid TUI with full per-voice panes
 Current grid is a 2- or 3-column layout sharing the `AgentProgressLine` row style. Side-by-side panes per voice (full `VerboseAgentTranscript` in each cell) is the remaining P2-UI work. Was noted in HANDOFF; deferred because the current grid covers ~70% of the UX goal.
 
-### Animated stage transitions in council mode session view
+### [ ] Animated stage transitions in council mode session view
 Currently the session view in `COUNCIL_MODE_REDESIGN.md` v1 does hard cuts between stages (proposal → synthesis → execution → review → done). A brief 100–200ms fade or color-flash highlighting the new stage in the top bar would make the transitions feel less abrupt and reinforce the multi-stage mental model. Deferred from v1 because (a) Ink's animation primitives are limited compared to web animations and (b) keeping the v1 surface minimal lets the rest of the redesign ship by the planned Sunday. Revisit once the v1 session view has had a few weeks of use — animated transitions only land if the hard-cut version actually feels jarring in practice.

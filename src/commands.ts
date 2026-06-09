@@ -26,6 +26,7 @@ import verdict from './commands/verdict/index.js'
 import voiceTest from './commands/voice-test/index.js'
 import voiceSweep from './commands/voice-sweep/index.js'
 import verifyCitations from './commands/verify-citations/index.js'
+import discoverSweep from './commands/discover-sweep/index.js'
 import onboardGithub from './commands/onboard-github/index.js'
 import knowledge from './commands/knowledge/index.js'
 import memory from './commands/memory/index.js'
@@ -330,6 +331,7 @@ const COMMANDS = memoize((): Command[] => [
   voiceTest,
   voiceSweep,
   verifyCitations,
+  discoverSweep,
   onboardGithub,
   outputStyle,
   remoteEnv,

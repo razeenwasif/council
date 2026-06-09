@@ -104,7 +104,19 @@ A 2024 advance: **QuaRot** showed that rotating LLM hidden states (via Hadamard 
 
 This last finding is directly relevant to the present project: it suggests that *small-scale specialty fine-tuning may compensate for quantization damage*, which is exactly the verification-layer hypothesis. The present project extends this by (a) using the fine-tuned quantized model as a *verifier* rather than a primary reasoner, (b) measuring across more bit-depths with explicit PTQ-vs-QAT comparison, (c) embedding the result in a multi-agent system.
 
-### 3.6 The serving stack — llama.cpp / GGUF
+### 3.6 KV-cache compression — TurboQuant (ICLR 2026)
+
+**TurboQuant** ([Google Research, ICLR 2026](https://research.google/blog/turboquant-redefining-ai-efficiency-with-extreme-compression/)) is a two-stage KV-cache compression algorithm that combines **PolarQuant** (random-rotation of value vectors → per-segment quantization) with a 1-bit residual error-corrector based on **Quantized Johnson-Lindenstrauss (QJL)**. The first stage simplifies the vectors' geometry so a standard high-quality quantizer applies independently to each part; the second stage uses a tiny residual bit budget on the leftover error to eliminate bias in the attention scores. Headline result: **KV-cache quantized to 3 bits, ~6× memory footprint reduction, zero accuracy loss reported, no fine-tuning or retraining required.**
+
+This is *directly relevant to the present project's central claim*. The thesis hypothesis — that information loss under extreme quantization is *measurable through multi-agent verification* in ways not visible to single-channel benchmarks — is testable on TurboQuant specifically:
+
+> Standard perplexity may report TurboQuant as zero-loss; multi-agent debate quality + verifier flag count + citation-harness MISMATCH rate may report it as nonzero-loss. The decomposition between the two measurement channels is the project's methodology contribution.
+
+This generalizes the v1.0-vs-v1.5 verifier A/B reported in `THESIS_FINDINGS.md` (single-channel citation verification reported 0% confabulation; multi-channel reported 100% on the same data). The TurboQuant evaluation extends the same methodology pattern to *compression artifact* detection.
+
+Practical caveat (2026-06-09): the official Google implementation is targeted for Q2 2026; Tether's QVAC SDK 0.12.0 reportedly ships an early integration. Ollama upstream integration is not yet announced. Implementation deferred to a follow-up phase; experiment design tracked in `BACKLOG.md` ("Evaluate Google TurboQuant for Council KV-cache compression").
+
+### 3.7 The serving stack — llama.cpp / GGUF
 
 The community-standard format for serving quantized LLMs is **GGUF** (introduced in `llama.cpp` by Gerganov, [github.com/ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp)). GGUF supports 1.5–8 bit quantization via "K-quant" variants (Q2_K, Q3_K_S/M/L, Q4_K_S/M, Q5_K_S/M, Q6_K) that use mixed-precision blocks for better accuracy at the same effective bit budget. **The present project's Phase 3 quantization sweep uses GGUF formats** because they are widely-deployed, well-tested, and serve directly through ollama (the user's existing setup).
 

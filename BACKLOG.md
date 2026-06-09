@@ -578,6 +578,42 @@ Length budget: same as other voices (400-600 words r1, 350-550 r2).
 
 **Cross-references**: companion to the Domain Specialist role entry directly above (Council-side integration). Together they close the loop from "fine-tune a model" to "Council uses it in /discover and verifier catches its specific failure modes."
 
+### Evaluate Google TurboQuant for Council KV-cache compression (and as a thesis-comparable claim)
+
+**Discovered 2026-06-09** via the user surfacing it ("can we make use of Google's latest TurboQuant algorithm?"). Verified real: presented at ICLR 2026 (April), targeted Q2 2026 official implementation, Tether's QVAC SDK 0.12.0 reportedly ships an early integration. Sources collected in `LITERATURE_REVIEW.md §3.6`.
+
+**What TurboQuant is**:
+- Inference-time KV-cache compression algorithm (NOT training-time weight quantization)
+- Two-stage: PolarQuant (random rotation → per-segment quantization) + QJL (Quantized Johnson-Lindenstrauss as a 1-bit residual error corrector)
+- Headline claim: KV-cache quantized to 3 bits, **6× memory footprint reduction, zero accuracy loss, no fine-tuning required**
+
+**Why it's directly relevant to the thesis**: the headline claim — "zero accuracy loss under extreme compression" — is *exactly* the information-preservation hypothesis the thesis investigates. Council is the ideal evaluation substrate because we can measure compression cost through *multi-channel* verification, not single-channel perplexity.
+
+**Experiment design** (when integration is available):
+
+> **Hypothesis**: TurboQuant's reported zero-accuracy-loss decomposes differently under multi-agent verification. Specifically, KV-cache compression may produce briefs the Verifier flags MORE than the uncompressed baseline AND/OR briefs whose citations the `/verify-citations` harness fails MORE often, even when standard perplexity stays flat. This would be evidence that single-channel compression measurements systematically underestimate information loss — the same methodology pattern documented in `THESIS_FINDINGS.md` failure mode #13 (v1.0-vs-v1.5 verifier A/B).
+
+> **Protocol**:
+> 1. Same `/discover` prompt set used in 2026-06-09 baseline runs (Q-Day + 4-bit-quantization prompts).
+> 2. Two configurations: (a) baseline Ollama (full-precision KV cache), (b) TurboQuant 3-bit KV cache.
+> 3. For each config × prompt: capture brief + verifier flag count + `/verify-citations` MISMATCH count + wall-clock + KV-cache memory at peak.
+> 4. Headline metric: ∆-verifier-flags / ∆-citation-mismatches per ∆-KV-bits-saved.
+> 5. Report findings in `THESIS_FINDINGS.md` as the third major v1.0-vs-v1.5-style A/B of the project.
+
+**Practical integration path** (in priority order):
+1. Wait for Ollama upstream support — easiest, lowest-effort.
+2. Use llama.cpp's existing KV-cache quantization (Q4/Q8) as a baseline approximation while waiting — won't be TurboQuant specifically but exercises the measurement infrastructure.
+3. Build from Tether QVAC SDK's reference impl if it surfaces sooner than Ollama.
+4. (Long-shot) Fork llama.cpp + integrate manually.
+
+**Side benefits for Council deployment** (independent of the thesis experiment):
+- Current fleet has 6 active models with `OLLAMA_MAX_LOADED_MODELS=2` → swap-thrash. 6× smaller KV cache → potentially bump max-loaded to 4+.
+- Council voices use `num_ctx=8192-16384`. TurboQuant could push to 32K+ at the same VRAM cost — enables longer-context synthesis without re-tuning Modelfiles.
+
+**Why P2 (not P1)**: integration likely needs Ollama upstream, which we can't control. Filing now means the experiment design is ready when integration lands; we can fire two `/discover` runs and have immediate comparative data.
+
+**Cross-references**: lit-review entry at `LITERATURE_REVIEW.md §3.6` (Council) + `literature_review.tex §3.6` (paper) + `references.bib` entry `google2026turboquant`.
+
 ### Counterfactual / Falsifier role for `/discover`
 
 **Symptom / motivation**: in observed `/discover` runs (this session's Q-Day debates especially), the four voices often produce a **consensus echo** — all four substantially agree on the convergent claim, with only stylistic framing differences. The synthesist then writes a brief about that convergence. There's no voice whose job is to **attack the consensus from outside**: devils_advocate counters *specific positions* but doesn't take the meta-position "the convergent claim is wrong; what would we expect if so?"

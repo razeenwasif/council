@@ -19,6 +19,7 @@ Things deliberately not built yet, grouped by priority. Each item names what's m
 - [~] (P4) Self-improving council — Phase 1 (telemetry) shipped; Phases 2-5 pending
 
 **Top P2 — not started:**
+- [ ] Ultracode — scripted general-purpose multi-agent orchestrator (`/workflow`) — full design in `ULTRACODE_ARCHITECTURE.md`
 - [ ] MCP integrations for the research path (arXiv, Wolfram Alpha, code execution; Tier 2: Semantic Scholar, Memory)
 - [ ] Domain Specialist role for `/discover` (consumes the pipeline above)
 - [ ] Verifier role for `/discover` briefs (Co-Scientist Reflection minimal subset)
@@ -288,6 +289,24 @@ A list of TUI/render perf improvements surfaced in a 2026-06-07 review. Document
 - *Worker-thread offload for Markdown / syntax highlighting*: worker IPC overhead (serialize → postMessage → deserialize → postMessage back) is its own ~5-15ms tax per round-trip. Net loss unless the UI thread is genuinely blocked for >50ms sustained AND the Phase 3 LRU cache hasn't already solved it.
 
 **Why P2**: every dual-pane + Council UX iteration gets more sensitive to render lag — multi-agent dispatches already serialize 14 voice spawns, so any UI-thread cost compounds. But this is also exactly the territory where speculative refactors waste days. The phasing here is the actual guardrail.
+
+### [ ] Ultracode — scripted general-purpose multi-agent orchestrator (`/workflow`)
+
+**Motivation**: Council today has two *fixed-shape* orchestrators — `/council` (7-voice review) and `/discover` (4-voice debate). Both hard-code their fan-out structure in `councilSpawn.ts` / `debateSpawn.ts`. There's no way to express an *arbitrary* multi-agent topology (loop-until-dry, judge panels, adversarial-verify, pipeline-over-a-worklist) without writing a new bespoke orchestrator each time. Claude Code's "ultracode" / Workflow tool solves exactly this: a deterministic JS script with `agent()` / `parallel()` / `pipeline()` / `phase()` / `budget` primitives that fan out subagents in any shape, with a run-journal for resume.
+
+**Why it's thesis-relevant**: the quality patterns ultracode makes trivial — adversarial verify (N skeptics per claim, kill on majority-refute), perspective-diverse verify, judge panels — ARE the verification-layer mechanisms the thesis argues for. Porting it gives a reusable substrate to run those experiments instead of hand-rolling each one. The Verifier / Counterfactual / Elo-tournament entries elsewhere in this backlog become ~20-line workflow scripts rather than new orchestrators.
+
+**Full design**: see `ULTRACODE_ARCHITECTURE.md` (companion doc, written 2026-06-10). It maps each ultracode primitive onto Council's real infrastructure — `agent()` → the AgentTool spawn path, role→model via the routing layer, schema-forced output via a synthetic StructuredOutput tool, a JSONL run-journal under the openclaude config home for `resumeFromRunId`, and a `/workflow` slash command registered in `commands.ts` mirroring the `/discover-sweep` template.
+
+**Phased plan** (from the architecture doc — see it for file-level detail):
+- **P0** — script runtime + `agent()` + `parallel()` + `/workflow` command (minimal, foreground)
+- **P1** — `pipeline()` + `phase()`/`log()` progress (reuse agent panel) + JSONL journal
+- **P2** — `resumeFromRunId` replay of the unchanged agent() prefix
+- **P3** — worktree isolation + `budget` token-ceiling + nested `workflow()`
+
+**Why deferred**: this is a substantial build (the architecture doc estimates the phases) and it's infrastructure, not a thesis result on its own. It pays off once the verification-experiment volume justifies a reusable harness. Filed now with a complete design so it's pick-up-able; no urgency over the physics-specialist v1 path.
+
+**Constraints flagged in the design**: the v8 heap leak (reuse the `/discover-sweep` heap-stop pattern for long runs), local-only voice rule, sync-dispatch requirement, and the known weak tool-call compliance of some local models (schema-forced StructuredOutput may loop on the same models that hit the MCP tool-call trap — see the P3 MCP compatibility entry).
 
 ---
 

@@ -1008,6 +1008,10 @@ The default v8 heap on this machine is **4 GB** (Node auto-tunes for system RAM 
 
 **Workaround shipped 2026-06-09** as `bin/council` self-re-exec with `--max-old-space-size=16384` (16 GB). Self-bootstrapping via `COUNCIL_HEAP_BUMPED` sentinel + signal forwarding (SIGINT/SIGTERM/SIGHUP → child) so the TUI's Ctrl+C still works. Override via `COUNCIL_HEAP_MB` env var (e.g. `=8192` on machines with less RAM, `=24576` if even 16 GB OOMs eventually). This is a *bandaid* — buys longer runs but the leak still exists.
 
+**Update 2026-06-10**: the 16 GB ceiling did NOT prevent a second crash — the sweep OOM'd again at ~120 more runs (249/500 total). So the leak is **super-linear**: v8's mark-compact gives up at progressively lower utilisation as the heap fragments with process age, not at a fixed byte ceiling. More heap just delays the wall; it doesn't move it proportionally. The real fix has to be releasing the retained objects, not raising the cap.
+
+**Mitigation shipped 2026-06-10** — `/discover-sweep` heap guard. The sweep now checks `v8.getHeapStatistics().used_heap_size / heap_size_limit` after each run and STOPS CLEANLY at a configurable threshold (`--heap-stop-pct`, default 80%) BEFORE the OOM, printing a "⚠ HEAP-STOP" summary that tells the user to relaunch + resume. `--skip-completed` makes resume lossless. This converts an unpredictable mid-run core dump (losing the in-flight brief + requiring forensics to find where it stopped) into a graceful chunked workflow: ~3-4 relaunches gets through a full 500-prompt sweep. Does not fix the leak — just makes living with it painless until the diagnostic work below happens.
+
 **Diagnostic plan** (~2-3 h):
 1. Add a `/heapdump` slash command that calls `v8.writeHeapSnapshot()` to a path. Trivial; node has the primitive.
 2. Reproduce: relaunch with the bumped heap, fire `/discover-sweep` against the seed file, snapshot at run 0, 50, 100. Three .heapsnapshot files.

@@ -23,6 +23,7 @@
 import { existsSync, readFileSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
+import { getHeapStatistics } from 'v8'
 
 import type { LocalCommandCall } from '../../types/command.js'
 import { runDebateFromToolContext } from '../../coordinator/council/debateSpawn.js'
@@ -51,6 +52,13 @@ Flags:
                            Useful for letting Ollama swap models cleanly.
   --continue-on-error      Don't stop the sweep on per-prompt failures.
                            The error is logged in the summary.
+  --heap-stop-pct=N        Stop the sweep cleanly when v8 used-heap
+                           exceeds N% of the heap limit (default 80,
+                           set 0 to disable). Council has a known leak
+                           (~31 MB/run) that OOM-crashes long sweeps;
+                           this exits gracefully BEFORE the crash so
+                           --skip-completed can resume. Relaunch Council
+                           (fresh heap) and re-run to continue.
 
 Output:
   - Each completed brief: ~/Research/debates/<timestamp>-<slug>.md
@@ -71,6 +79,7 @@ interface ParsedFlags {
   pauseMs: number
   skipCompleted: boolean
   continueOnError: boolean
+  heapStopPct: number
 }
 
 interface PromptEntry {
@@ -87,6 +96,19 @@ interface SweepRecord {
   error?: string
 }
 
+/** Returns the current v8 used-heap as a fraction (0..1) of the limit. */
+function heapUsedFraction(): number {
+  const s = getHeapStatistics()
+  if (!s.heap_size_limit) return 0
+  return s.used_heap_size / s.heap_size_limit
+}
+
+function fmtHeap(): string {
+  const s = getHeapStatistics()
+  const mb = (n: number) => Math.round(n / 1024 / 1024)
+  return `${mb(s.used_heap_size)}/${mb(s.heap_size_limit)} MB (${(heapUsedFraction() * 100).toFixed(0)}%)`
+}
+
 const COUNCIL_RUNS_PATH = join(homedir(), '.openclaude', 'council-runs.jsonl')
 
 function expandPath(p: string): string {
@@ -96,7 +118,12 @@ function expandPath(p: string): string {
 }
 
 function parseFlags(raw: string): ParsedFlags | { error: string } {
-  const flags: ParsedFlags = { pauseMs: 3000, skipCompleted: false, continueOnError: false }
+  const flags: ParsedFlags = {
+    pauseMs: 3000,
+    skipCompleted: false,
+    continueOnError: false,
+    heapStopPct: 80,
+  }
   const tokens = raw.trim().split(/\s+/).filter(Boolean)
 
   for (const tok of tokens) {
@@ -106,6 +133,12 @@ function parseFlags(raw: string): ParsedFlags | { error: string } {
       flags.skipCompleted = true
     } else if (tok === '--continue-on-error') {
       flags.continueOnError = true
+    } else if (tok.startsWith('--heap-stop-pct=')) {
+      const n = parseFloat(tok.slice('--heap-stop-pct='.length))
+      if (!Number.isFinite(n) || n < 0 || n > 100) {
+        return { error: `--heap-stop-pct must be between 0 and 100, got '${tok}'` }
+      }
+      flags.heapStopPct = n
     } else if (tok.startsWith('--limit=')) {
       const n = parseInt(tok.slice('--limit='.length), 10)
       if (!Number.isFinite(n) || n <= 0) {
@@ -241,6 +274,9 @@ export const call: LocalCommandCall = async (args, context) => {
   const sweepStart = Date.now()
   const records: SweepRecord[] = []
   const abortSignal = context.abortController?.signal
+  // Set when the heap guard trips, so the summary can tell the user to
+  // relaunch + resume rather than reporting a normal completion.
+  let heapStopped = false
 
   const headerLines: string[] = [
     `discover-sweep starting: ${prompts.length} prompts from ${flags.promptsPath}`,
@@ -255,6 +291,11 @@ export const call: LocalCommandCall = async (args, context) => {
     `  pause between prompts: ${(flags.pauseMs / 1000).toFixed(1)}s`,
     `  estimated time: ${fmtDuration(prompts.length * 95_000 + (prompts.length - 1) * flags.pauseMs)}`,
   )
+  if (flags.heapStopPct > 0) {
+    headerLines.push(
+      `  heap-stop at ${flags.heapStopPct}% · start heap ${fmtHeap()}`,
+    )
+  }
 
   for (let i = 0; i < prompts.length; i++) {
     if (abortSignal?.aborted) {
@@ -331,6 +372,23 @@ export const call: LocalCommandCall = async (args, context) => {
       }
     }
 
+    // Heap guard: Council has a known leak (~31 MB/run) that OOM-crashes
+    // long sweeps. Stop cleanly BEFORE the crash so --skip-completed can
+    // resume after a fresh relaunch. Checked after each run (post-GC-
+    // opportunity) so the reading reflects retained, not transient, heap.
+    if (flags.heapStopPct > 0 && heapUsedFraction() * 100 >= flags.heapStopPct) {
+      heapStopped = true
+      for (let j = i + 1; j < prompts.length; j++) {
+        records.push({
+          index: j,
+          question: prompts[j]!.question,
+          status: 'skipped',
+          error: `heap-stop: deferred (heap reached ${flags.heapStopPct}%)`,
+        })
+      }
+      break
+    }
+
     // Pause between prompts (skip after the very last one).
     if (i < prompts.length - 1 && flags.pauseMs > 0) {
       await sleep(flags.pauseMs)
@@ -353,7 +411,21 @@ export const call: LocalCommandCall = async (args, context) => {
     `Done in ${fmtDuration(totalDuration)} · ` +
       `${completed.length} ok · ${failed.length} failed · ${skipped.length} skipped`,
     `Avg per /discover: ${fmtDuration(avgDuration)}`,
+    `End heap: ${fmtHeap()}`,
   ]
+
+  if (heapStopped) {
+    const deferred = skipped.filter(r =>
+      (r.error ?? '').startsWith('heap-stop'),
+    ).length
+    summary.push(
+      '',
+      `⚠ HEAP-STOP: stopped at ${flags.heapStopPct}% heap to avoid an OOM crash.`,
+      `  ${completed.length} done this run · ${deferred} deferred.`,
+      `  To continue: /exit, relaunch ./bin/council (fresh heap), then re-run`,
+      `  the SAME command — --skip-completed will pick up where this left off.`,
+    )
+  }
 
   if (failed.length > 0) {
     summary.push('', 'Failures:')

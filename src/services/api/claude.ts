@@ -2287,12 +2287,16 @@ async function* queryModel(
             // claude-opus-4-7. Cost math still uses resolvedModel
             // (which is options.model) because the openclaude pricing
             // table doesn't have entries for shim provider models —
-            // honestly attributing to the shim model with $0 would
-            // hide real spend, so we keep the opus-rate cost and tag
-            // it to the actual model name for visibility.
+            // Cost math: use attributionModel (the shim provider's
+            // actual model name) now that modelCost.ts has per-shim
+            // pricing entries + a `-council` suffix special case that
+            // returns ZERO for local Ollama. Previously this used
+            // resolvedModel (always the parent main-loop model, usually
+            // Opus) because adding per-shim pricing was pending — that
+            // inflated /spend rows for cheap providers by 50-100×.
             const attributionModel =
               options.providerOverride?.model ?? options.model
-            const costUSDForPart = calculateUSDCost(resolvedModel, usage)
+            const costUSDForPart = calculateUSDCost(attributionModel, usage)
             costUSD += addToTotalSessionCost(
               costUSDForPart,
               usage,
@@ -2863,11 +2867,12 @@ async function* queryModel(
       const fallbackUsage = fallbackMessage.message.usage
       usage = updateUsage(EMPTY_USAGE, fallbackUsage)
       stopReason = fallbackMessage.message.stop_reason
-      const fallbackCost = calculateUSDCost(resolvedModel, fallbackUsage)
-      // Same providerOverride attribution as the streaming path above —
-      // sub-agent API calls land under their actual provider model.
+      // Same providerOverride attribution + per-shim pricing as the
+      // streaming path above. attributionModel is computed first so
+      // it can feed both the cost math and the attribution tag.
       const attributionModel =
         options.providerOverride?.model ?? options.model
+      const fallbackCost = calculateUSDCost(attributionModel, fallbackUsage)
       costUSD += addToTotalSessionCost(
         fallbackCost,
         fallbackUsage,

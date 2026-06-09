@@ -55,7 +55,17 @@ Six artifacts in `src/utils/council/` (formatCost, withRetry, lruCache, clamp, p
 3. Wire `getTotalCost` in `runCouncilFromToolContext` (`councilSpawn.ts`).
 4. Add 3 tests mirroring the debate test cases (per-spawn-cost path, getCurrentCost path, defaults-to-noop preservation).
 
-### Add pricing-table entries for shim provider models
+### ✓ Add pricing-table entries for shim provider models — SHIPPED 2026-06-09
+
+**Shipped** in `src/utils/modelCost.ts`:
+1. Added `SHIM_PROVIDER_COSTS: Record<string, ModelCosts>` map with entries for DeepSeek (chat + reasoner), Gemini 3.5 Flash/Pro, Qwen 3.6-Plus, Mistral Large/Medium, OpenAI GPT-4.1-mini + 4o-mini. Per-million-token rates verified against provider pricing pages 2026-06-09.
+2. Added `COST_ZERO_LOCAL` tier + a special case in `getModelCosts`: any model name ending in `-council` (the Council fork's Modelfile naming convention) returns zero cost. Covers the full local Ollama fleet — `gemma4:e4b-council`, `mathstral:7b-council`, `falcon3:10b-council`, etc.
+3. Lookup precedence: `-council` suffix → SHIM_PROVIDER_COSTS by raw name → canonical-name MODEL_COSTS → fallback to default. The local case fires first so a model accidentally appearing in both tables (shouldn't happen, but defensive) still attributes correctly.
+4. Switched `claude.ts:2295` + `:2866` from `calculateUSDCost(resolvedModel, ...)` to `calculateUSDCost(attributionModel, ...)` so the per-shim/per-local pricing actually feeds the cost math (was using the parent main-loop model's rate, which was usually Opus).
+
+**Verification**: `/spend --today` after a `/discover` run now shows $0.00 for all `-council` rows (previously showed Opus-rate phantom costs). Shim providers like `deepseek-chat` would now correctly show their real per-million-token rates if routed.
+
+### Original entry (kept for context):
 
 **Symptom**: `/spend --models` now correctly shows shim providers (deepseek-chat, gemini-3.5-flash, qwen3.6-plus, mistral-large-latest, mistral-medium-latest, gpt-4.1-mini) in the breakdown — that part landed in `c428f0e`. But the cost numbers for those rows are calculated at **claude-opus-4-7 rates** because openclaude's pricing table doesn't have entries for them. Result: an Implementer turn that actually cost ~$0.001 on DeepSeek shows up as ~$0.05 at opus rates.
 
@@ -410,7 +420,17 @@ The gap is specifically **semantic retrieval over a persistent local corpus**, n
 
 **Origin**: filed 2026-06-09 after external multi-agent-system advice (GPT + Gemini, separately, gave nearly-identical "use BGE-M3 + vector store" recommendations). The other half of their advice (switch to AutoGen/CrewAI, swap Llama-3 in as Planner) was directly contradicted by Phase 1 sweep data and not adopted. The retrieval-layer idea is the one piece worth extracting.
 
-### Investigate git context leakage into synthesist brief (data leak bug)
+### ✓ Investigate git context leakage into synthesist brief (data leak bug) — DIAGNOSED + SHIPPED 2026-06-09
+
+**Diagnosis**: confirmed the leak by tracing the offending brief (`~/Research/debates/2026-06-08-15-56-how-will-the-advent-of-practical-quantum.md`) against `~/.openclaude/council-runs.jsonl`. The runId is `acb2144d`. The SHAs leaked through the **devils_advocate** voice on `deepseek-r1:7b-council` (NOT the synthesist as the original entry assumed — the synthesist propagated content the upstream voice produced). The voice's `prompt` field did NOT contain the SHAs — they came through `baseSystemContext` injection from `src/context.ts:96-103`'s `gitStatus` block which includes "Recent commits:\n${log}".
+
+R1 read the commit messages (which mentioned "synthesist debugging", "tool-strip fan-out voices") in its system context and pattern-matched them as NIST PQC standardization evidence, confabulating them into its r1/r2 positions. The synthesist then propagated these into the brief.
+
+**Fix shipped** at `src/tools/AgentTool/runAgent.ts:412`: extended the existing Explore/Plan `gitStatus`-omission to also cover ALL 15 Council + Debate agent types (skeptic, critic, tester, security, performance, architect, implementer, executor, synthesizer, empiricist, methodologist, devils_advocate, hypothesizer, synthesist, verifier). These roles reason over user research prompts with NO legitimate use for repo state, so `gitStatus` is dead weight + a data-leak risk.
+
+Implementation as a `NO_GIT_STATUS_AGENT_TYPES` Set check rather than per-agent `omitGitStatus` field — keeps the change localized to one file rather than touching all 15 agent definitions. Trade-off: future fork-added agents need to update this set (documented in the comment block). Build clean. Hypothesis #1 from the original entry (CLAUDE.md / context-file auto-injection) was correct; hypothesis #2 (inherited ToolUseContext) was unrelated; #3 (empiricist tool-call escape) ruled out — leak originated in system context, not tool use; #4 (DeepSeek-R1 thinking-mode quirk) was the SECONDARY cause — R1 specifically interpreted the commit messages as evidence, but Nemo would also see them as context just less likely to confabulate.
+
+### Original entry (kept for context):
 
 **Symptom**: 2026-06-08 — a `/discover` brief with synthesist routed to `deepseek-r1:7b-council` emitted literal git commit SHAs from the current repo's history *inside the brief's "Strongest convergent claim" section*:
 

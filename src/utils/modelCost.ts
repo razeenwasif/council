@@ -89,6 +89,104 @@ export const COST_HAIKU_45 = {
 
 const DEFAULT_UNKNOWN_MODEL_COST = COST_TIER_5_25
 
+// Zero-cost tier for local Ollama / self-hosted models. Any model name
+// ending in `-council` (the Council fork's Modelfile naming convention
+// for tuned local models, e.g. `mathstral:7b-council`) gets this tier —
+// local inference has no per-token API cost.
+const COST_ZERO_LOCAL: ModelCosts = {
+  inputTokens: 0,
+  outputTokens: 0,
+  promptCacheWriteTokens: 0,
+  promptCacheReadTokens: 0,
+  webSearchRequests: 0,
+}
+
+/**
+ * Pricing entries for OpenAI-compatible shim providers used as Council
+ * agent backends via the `agentModels` / `providerOverride` plumbing.
+ *
+ * Keyed by the raw model name the shim sees (NOT the Claude
+ * canonical name), so this map sits in front of the canonical-name
+ * `MODEL_COSTS` lookup in `getModelCosts`.
+ *
+ * Prices verified 2026-06-09 from public provider pricing pages
+ * (per-million-token rates). Adjust when provider pricing changes.
+ *
+ * Without these entries, every shim-provider call falls back to the
+ * default Opus-tier costs, inflating `/spend --models` rows for cheap
+ * providers by 50-100×.
+ */
+const SHIM_PROVIDER_COSTS: Record<string, ModelCosts> = {
+  // DeepSeek (deepseek.com pricing, cache-discounted reads)
+  'deepseek-chat': {
+    inputTokens: 0.27,
+    outputTokens: 1.10,
+    promptCacheWriteTokens: 0.27,
+    promptCacheReadTokens: 0.07,
+    webSearchRequests: 0,
+  },
+  'deepseek-reasoner': {
+    inputTokens: 0.55,
+    outputTokens: 2.19,
+    promptCacheWriteTokens: 0.55,
+    promptCacheReadTokens: 0.14,
+    webSearchRequests: 0,
+  },
+  // Google Gemini (aistudio.google.com pricing — paid tier)
+  'gemini-3.5-flash': {
+    inputTokens: 0.30,
+    outputTokens: 2.50,
+    promptCacheWriteTokens: 0.30,
+    promptCacheReadTokens: 0.075,
+    webSearchRequests: 0,
+  },
+  'gemini-3.5-pro': {
+    inputTokens: 1.25,
+    outputTokens: 10.0,
+    promptCacheWriteTokens: 1.25,
+    promptCacheReadTokens: 0.31,
+    webSearchRequests: 0,
+  },
+  // Alibaba Qwen (DashScope international pricing)
+  'qwen3.6-plus': {
+    inputTokens: 0.40,
+    outputTokens: 1.20,
+    promptCacheWriteTokens: 0.40,
+    promptCacheReadTokens: 0.10,
+    webSearchRequests: 0,
+  },
+  // Mistral AI
+  'mistral-large-latest': {
+    inputTokens: 2.0,
+    outputTokens: 6.0,
+    promptCacheWriteTokens: 2.0,
+    promptCacheReadTokens: 0.50,
+    webSearchRequests: 0,
+  },
+  'mistral-medium-latest': {
+    inputTokens: 0.40,
+    outputTokens: 2.0,
+    promptCacheWriteTokens: 0.40,
+    promptCacheReadTokens: 0.10,
+    webSearchRequests: 0,
+  },
+  // OpenAI (platform.openai.com pricing)
+  'gpt-4.1-mini': {
+    inputTokens: 0.40,
+    outputTokens: 1.60,
+    promptCacheWriteTokens: 0.40,
+    promptCacheReadTokens: 0.10,
+    webSearchRequests: 0,
+  },
+  'gpt-4o-mini': {
+    inputTokens: 0.15,
+    outputTokens: 0.60,
+    promptCacheWriteTokens: 0.15,
+    promptCacheReadTokens: 0.075,
+    webSearchRequests: 0,
+  },
+}
+
 /**
  * Get the cost tier for Opus 4.6 based on fast mode.
  */
@@ -145,9 +243,22 @@ function tokensToUSDCost(modelCosts: ModelCosts, usage: Usage): number {
 }
 
 export function getModelCosts(model: string, usage: Usage): ModelCosts {
+  // 1. Local Ollama / self-hosted models — by Council Modelfile
+  //    convention these end in `-council` (e.g. `mathstral:7b-council`).
+  //    Local inference has no per-token API cost.
+  if (model.endsWith('-council')) {
+    return COST_ZERO_LOCAL
+  }
+
+  // 2. Shim provider passthrough — look up by raw model name BEFORE
+  //    canonical-name normalization, because shim providers use names
+  //    Anthropic's canonical-name resolver doesn't recognize.
+  const shimCosts = SHIM_PROVIDER_COSTS[model]
+  if (shimCosts) return shimCosts
+
   const shortName = getCanonicalName(model)
 
-  // Check if this is an Opus 4.6 model with fast mode active.
+  // 3. Opus 4.6 special case (fast-mode tier switch).
   if (
     shortName === firstPartyNameToCanonical(CLAUDE_OPUS_4_6_CONFIG.firstParty)
   ) {
@@ -155,6 +266,7 @@ export function getModelCosts(model: string, usage: Usage): ModelCosts {
     return getOpus46CostTier(isFastMode)
   }
 
+  // 4. Canonical Claude model pricing.
   const costs = MODEL_COSTS[shortName]
   if (!costs) {
     trackUnknownModelCost(model, shortName)

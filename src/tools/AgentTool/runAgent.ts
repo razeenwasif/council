@@ -409,13 +409,47 @@ export async function* runAgent({
   // gitStatus (up to 40KB, explicitly labeled stale) is dead weight. If they
   // need git info they run `git status` themselves and get fresh data.
   // Saves ~1-3 Gtok/week fleet-wide.
+  //
+  // Council + Debate roles ALSO must omit gitStatus — they reason over a
+  // user's research prompt with NO legitimate use for repo state, and
+  // injecting commit SHAs + messages causes data-leak failures:
+  // 2026-06-08 — `deepseek-r1:7b-council` as devils_advocate emitted real
+  // commit SHAs (`39c6ce4`, `e935441`) inside a `/discover` brief about
+  // PQC standardization, treating the commit MESSAGES as NIST evidence.
+  // Brief at ~/Research/debates/2026-06-08-15-56-how-will-the-advent-of-
+  // practical-quantum.md, full trace in council-runs.jsonl runId
+  // acb2144d. The voice's prompt did NOT contain the SHAs — they came
+  // through baseSystemContext (getSystemContext → getGitStatus →
+  // "Recent commits:\n${log}"). This list is the closed set of Council
+  // fork agent types defined under `src/tools/AgentTool/built-in/`.
+  const NO_GIT_STATUS_AGENT_TYPES = new Set([
+    'Explore',
+    'Plan',
+    // Council roles (src/tools/AgentTool/built-in/council/)
+    'skeptic',
+    'critic',
+    'tester',
+    'security',
+    'performance',
+    'architect',
+    'implementer',
+    'executor',
+    'synthesizer',
+    // Debate roles (src/tools/AgentTool/built-in/debate/)
+    'empiricist',
+    'methodologist',
+    'devils_advocate',
+    'hypothesizer',
+    'synthesist',
+    'verifier',
+  ])
   const { gitStatus: _omittedGitStatus, ...systemContextNoGit } =
     baseSystemContext
-  const resolvedSystemContext =
-    agentDefinition.agentType === 'Explore' ||
-    agentDefinition.agentType === 'Plan'
-      ? systemContextNoGit
-      : baseSystemContext
+  const resolvedSystemContext = NO_GIT_STATUS_AGENT_TYPES.has(
+    agentDefinition.agentType,
+  )
+    ? systemContextNoGit
+    : baseSystemContext
 
   // Override permission mode if agent defines one
   // However, don't override if parent is in bypassPermissions or acceptEdits mode - those should always take precedence

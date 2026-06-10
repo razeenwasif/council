@@ -59,6 +59,20 @@ Flags:
                            this exits gracefully BEFORE the crash so
                            --skip-completed can resume. Relaunch Council
                            (fresh heap) and re-run to continue.
+  --no-panel               Don't render the live per-voice agent panel.
+                           The panel appends ~12 voice messages (~25 KB
+                           each) to the REPL history PER PROMPT and never
+                           trims them — that retained message array is
+                           the dominant source of the heap leak above.
+                           With --no-panel the sweep runs WITHOUT the live
+                           panel; briefs (→ ~/Research/debates/) and
+                           telemetry (→ council-runs.jsonl) are unaffected
+                           since both are independent of the panel. STRONGLY
+                           recommended for long unattended sweeps — it
+                           largely removes the OOM at the source, so you
+                           likely won't hit the heap-stop at all. Monitor
+                           progress via "tail -f council-runs.jsonl" or the
+                           validator script (RUNBOOK Phase 2.3).
 
 Output:
   - Each completed brief: ~/Research/debates/<timestamp>-<slug>.md
@@ -80,6 +94,7 @@ interface ParsedFlags {
   skipCompleted: boolean
   continueOnError: boolean
   heapStopPct: number
+  noPanel: boolean
 }
 
 interface PromptEntry {
@@ -123,6 +138,7 @@ function parseFlags(raw: string): ParsedFlags | { error: string } {
     skipCompleted: false,
     continueOnError: false,
     heapStopPct: 80,
+    noPanel: false,
   }
   const tokens = raw.trim().split(/\s+/).filter(Boolean)
 
@@ -133,6 +149,8 @@ function parseFlags(raw: string): ParsedFlags | { error: string } {
       flags.skipCompleted = true
     } else if (tok === '--continue-on-error') {
       flags.continueOnError = true
+    } else if (tok === '--no-panel') {
+      flags.noPanel = true
     } else if (tok.startsWith('--heap-stop-pct=')) {
       const n = parseFloat(tok.slice('--heap-stop-pct='.length))
       if (!Number.isFinite(n) || n < 0 || n > 100) {
@@ -296,6 +314,12 @@ export const call: LocalCommandCall = async (args, context) => {
       `  heap-stop at ${flags.heapStopPct}% · start heap ${fmtHeap()}`,
     )
   }
+  if (flags.noPanel) {
+    headerLines.push(
+      `  --no-panel: live voice panel OFF (leak mitigation) · ` +
+        `monitor via tail -f council-runs.jsonl`,
+    )
+  }
 
   for (let i = 0; i < prompts.length; i++) {
     if (abortSignal?.aborted) {
@@ -331,7 +355,13 @@ export const call: LocalCommandCall = async (args, context) => {
         outputPath,
         toolUseContext: context,
         canUseTool: context.canUseTool,
-        setMessages: context.setMessages,
+        // --no-panel: withhold setMessages so the debate's panel hooks
+        // (buildDebatePanelHooks, gated on setMessages in debateSpawn.ts)
+        // are skipped entirely. This is what stops the per-voice message
+        // array from growing ~25 KB × 12 / prompt across the sweep — the
+        // dominant heap-leak source. Brief writing + bus telemetry are
+        // independent of setMessages, so both still fire.
+        setMessages: flags.noPanel ? undefined : context.setMessages,
       })
 
       let briefPath: string | undefined

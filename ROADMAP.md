@@ -226,6 +226,8 @@ RSNNG  │             │          │               │ (out-of-domain    │ 
 
 A full factorial would be 2 × 6 × 2 × 2 = 48 cells. In practice, Phase 0–2 only fill the first 4 columns (no quantization); Phase 3 expands to fill the full grid. Each cell needs ~30 evaluations to get stable averages; planning for ~1500 total evaluations.
 
+**Optional 5th axis (follow-on, not v1) — compression *modality*.** The four axes above all compress along bit-depth (quantization). A natural extension adds a second compression modality — *distillation* (parameter count) — as a comparison baseline: train a small 1.5–3B student from the FP16 7B specialist and run it through the *same* grid. The interesting cells are the matched-budget head-to-heads (e.g. `7B-Q2` vs `1.5B-distilled` vs `1.5B-distilled-Q4` at comparable VRAM/latency) measured by the same verifier. This is deliberately scoped as a *comparison axis layered on the existing harness*, not a fifth pillar that displaces the quantization study — quantization stays the headline. Full framing in `RESEARCH_PROPOSAL.md` §11 follow-on #4; engineering sketch in `~/Research/council-specialists/BACKLOG.md` ("Knowledge distillation as a second compression axis") + `HARDWARE.md` §5–§7.
+
 ### Expected curves (predictions to test)
 
 ```

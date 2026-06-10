@@ -295,11 +295,12 @@ Detailed weekly todos: see `WEEKLY_PLAN.md`.
 
 ## 11. Beyond the First Paper — Roadmap of Follow-On Work
 
-If Phase 2–4 succeed, three natural follow-ups become available:
+If Phase 2–4 succeed, four natural follow-ups become available:
 
 1. **Multi-specialist scaling study** (Phase 5 in `ROADMAP.md`): does the quantization curve generalize across domains, or is it domain-specific?
 2. **Closed-loop Co-Scientist with quantized verifiers** (per `CO-SCIENTIST.md`): integrate the verification layer into the full 6-agent hypothesis-tournament architecture.
 3. **Quantization-aware specialization methodology**: develop new training recipes that produce specialists *designed* to survive aggressive quantization, rather than first training FP16 then degrading.
+4. **Distillation as a second compression axis**: the present paper studies compression along the *bit-depth* axis (quantization — same parameters, fewer bits). Distillation is the orthogonal *parameter-count* axis (train a small 1.5–3B student from the FP16 7B specialist as teacher). The same measurement apparatus — multi-channel verification detecting degradation that single-channel perplexity misses — applies unchanged. The contribution is the **head-to-head at matched VRAM/latency budget**: does quantizing 7B→Q2 or distilling 7B→1.5B preserve more *verifiable* reasoning, do they fail *differently* under the verifier, and does **distill-then-quantize** compound or compound-less (a distilled student's narrower output distribution may be more information-preserving under quantization — directly testing this paper's central hypothesis on a new model). This is framed deliberately as a *comparison axis*, not a co-equal pillar: quantization stays the headline so the contribution stays sharp, and distillation enters as the baseline-and-stacking study that completes the compression picture. A cheap v1 is nearly free given the existing pipeline — sequence-level distillation reuses the Council-bootstrap training data with a smaller base model (see `~/Research/council-specialists/BACKLOG.md` and `HARDWARE.md` §5–§7 for the engineering sketch and the size-reduction analysis).
 
 Each follow-up could be a self-contained paper. The present proposal commits only to the first paper.
 

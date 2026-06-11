@@ -94,6 +94,8 @@ A 2024 advance: **QuaRot** showed that rotating LLM hidden states (via Hadamard 
 
 **LLM-QAT** ([Liu et al. 2023](https://arxiv.org/abs/2305.17888), ACL 2024) introduced data-free QAT for LLMs: generates synthetic training data from the pretrained model itself (no need for the original training data), distills the FP16 model into a quantized student. Quantizes weights, activations, *and* KV cache. Demonstrated on LLaMA 7B/13B/30B down to 4 bits. **The present project will use LLM-QAT-style methodology for Phase 3's QAT vs. PTQ comparison.**
 
+**Gemma 4 QAT** ([Google 2026](https://blog.google/innovation-and-ai/technology/developers-tools/quantization-aware-training-gemma-4/)) — a *production* QAT release: Google published QAT checkpoints for Gemma 4 (E2B, E4B, 12B, 26B-MoE variants) in the `Q4_0` format plus a novel mobile format using *targeted 2-bit quantization* for token-generation layers while keeping reasoning components at higher precision (reducing E2B to <1 GB). The directly load-bearing claim for this thesis: **"QAT results yield even higher overall quality compared to standard PTQ baselines"** — production evidence for RQ3 (PTQ vs QAT). Two roles here: (a) a citable real-world confirmation that QAT preserves quality better than PTQ under equal bit-depth, and (b) a concrete QAT *generalist* baseline to compare against this project's QLoRA-specialist→PTQ pipeline under the multi-channel verifier — the sharp question being whether a small *domain specialist* outperforms a QAT *generalist* on in-domain prompts. The 2-bit mobile format is also an extreme data-point on the project's quantization curve. (Caveat: the release page gives no quantitative benchmark deltas, context length, or tool-use detail.)
+
 ### 3.5 Quantization × reasoning — the most directly relevant prior work
 
 **Liu et al. (2025)** "Quantization Meets Reasoning: Exploring LLM Low-Bit Quantization Degradation for Mathematical Reasoning" ([arXiv:2501.03035](https://arxiv.org/abs/2501.03035)) is the closest prior work to the present project's central question. They evaluate quantization on math reasoning specifically, finding:
@@ -230,7 +232,13 @@ The present project sits at the "LLM-as-Analyst" tier: the human scientist remai
 
 **Llama 3** ([Dubey et al. 2024](https://arxiv.org/abs/2407.21783)) — Meta's herd of dense models from 8B to 405B. The 405B model trained on 16K H100 GPUs achieves GPT-4-class quality across most benchmarks. Native support for multilinguality, coding, reasoning, and tool use.
 
-**Gemma 3** ([Gemma Team 2025](https://arxiv.org/abs/2503.19786)) — Google's open-weights family with 1B, 4B, 12B, 27B variants. Multimodal (text + images/video in, text out). 128K context window. Gemma-3-27B-IT reportedly beats Gemini-1.5-Pro on benchmarks. *The present project's working assumption is "Gemma 4 31B" — if that doesn't exist, fall back to Gemma 3 27B with no methodology change.*
+**Gemma 3** ([Gemma Team 2025](https://arxiv.org/abs/2503.19786)) — Google's open-weights family with 1B, 4B, 12B, 27B variants. Multimodal (text + images/video in, text out). 128K context window. Gemma-3-27B-IT reportedly beats Gemini-1.5-Pro on benchmarks.
+
+**Gemma 4** (2026) — successor family: E2B / E4B edge variants, 12B, and a 26B-MoE. Notably shipped with first-party **QAT** checkpoints (see §3.4) — the first time a major open-weights release made quantization-aware-trained weights the *recommended* deployment artifact, which is a strong fit for this project's fleet (many small QAT voices resident at once) and its quantization thesis. *Supersedes the older "Gemma 4 31B if it exists" assumption — the actual Gemma 4 line tops out at a 26B MoE, not a 31B dense model.*
+
+**DiffusionGemma** ([Google DeepMind 2026](https://deepmind.google/models/gemma/diffusiongemma/)) — an *experimental text-diffusion* model (26B MoE, 3.8B active), built on Gemma 4 + Gemini Diffusion. Replaces autoregressive token-by-token generation with bi-directional parallel denoising (256 tokens/forward pass), claiming 4–5× faster output and "self-correction" by evaluating whole text blocks. Fits in 24 GB quantized. Relevant here as a *generation-paradigm* variable: its whole-block self-correction is a plausible lever against confabulation (failure mode #13), making **autoregressive-vs-diffusion under the multi-channel verifier** a novel experiment. Caveats: tool-use/instruction-following unbenchmarked; llama.cpp support is a draft PR ([#24423](https://github.com/ggml-org/llama.cpp/pull/24423), dedicated `llama-diffusion-cli`, not the server) so it is not yet Ollama-deployable.
+
+**Nex-N2** ([Nex AGI 2026](https://huggingface.co/nex-agi/Nex-N2-mini)) — Apache-2.0 agentic models post-trained on Qwen3.5, with a built-in reasoning+tool-use+execution loop. **Pro** (397B/17B-active MoE) reaches frontier scores (80.8 SWE-Bench Verified, 90.7 GPQA Diamond) but needs ~794 GB VRAM — data-center / API only, so out of scope for the project's local-only fleet (usable at most as an external teacher/comparison). **Mini** (Qwen3.5-35B-A3B, 35B/3B-active, 262K ctx) fits a single 24 GB GPU at 4-bit (~18–20 GB) and its native tool-use directly targets the local-model tool-call weakness documented in this project — a candidate generalist voice/orchestrator.
 
 **Qwen 2.5** ([Yang et al. 2024](https://arxiv.org/abs/2412.15115)) — Alibaba's open-weights family, especially strong at math reasoning. Qwen2.5-Math-72B-Instruct surpasses Qwen-2-Math-72B and GPT-4o. *A leading candidate base model for any math-specialized future variant.*
 
@@ -242,7 +250,7 @@ The present project sits at the "LLM-as-Analyst" tier: the human scientist remai
 
 ### 8.2 Implications for base-model choice
 
-For a 31B-class domain specialist, the candidate pool is: Gemma 3 27B, Gemma 4 31B (if exists), Qwen 2.5 32B, Llama 3.x in the 30B range. **Trade-offs**:
+For a larger domain specialist, the candidate pool is: Gemma 3 27B, Gemma 4 (12B or 26B-MoE), Qwen 2.5 32B, Llama 3.x in the 30B range, Nex-N2-mini (35B/3B-MoE). (Note: the v1 specialist pipeline actually settled on Mistral-7B-Instruct-v0.3 — see `~/Research/council-specialists/` — so the 31B-class discussion here is for a future larger variant.) **Trade-offs**:
 
 - Gemma is the user's existing choice (already on disk via ollama).
 - Qwen has stronger math priors — relevant if the specialist's failure-mode profile is math-heavy.

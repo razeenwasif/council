@@ -28,6 +28,9 @@ Things deliberately not built yet, grouped by priority. Each item names what's m
 - [ ] Pairwise Elo tournament over `/discover` voices
 - [ ] Benchmark / regression harness
 - [ ] Evaluate Google TurboQuant for Council KV-cache compression
+- [ ] DiffusionGemma as the synthesist voice (text-diffusion; fast + self-correcting) — once Ollama-deployable
+- [ ] Gemma 4 QAT small variants as resident fleet voices (kills swap-thrash) + a QAT-vs-PTQ-specialist verifier A/B
+- [ ] Nex-N2-mini as a generalist voice / orchestrator candidate (agentic, Apache-2.0, fits the 4090 at 4-bit)
 - [ ] Local PDF cache + BGE-M3 semantic index for empiricist
 - [ ] TUI render-perf — measurement-gated optimizations
 
@@ -307,6 +310,38 @@ A list of TUI/render perf improvements surfaced in a 2026-06-07 review. Document
 **Why deferred**: this is a substantial build (the architecture doc estimates the phases) and it's infrastructure, not a thesis result on its own. It pays off once the verification-experiment volume justifies a reusable harness. Filed now with a complete design so it's pick-up-able; no urgency over the physics-specialist v1 path.
 
 **Constraints flagged in the design**: the v8 heap leak (reuse the `/discover-sweep` heap-stop pattern for long runs), local-only voice rule, sync-dispatch requirement, and the known weak tool-call compliance of some local models (schema-forced StructuredOutput may loop on the same models that hit the MCP tool-call trap — see the P3 MCP compatibility entry).
+
+### [ ] DiffusionGemma as the synthesist voice
+
+**Motivation** (2026-06-11): DiffusionGemma ([Google DeepMind](https://deepmind.google/models/gemma/diffusiongemma/)) is a 26B-MoE text-*diffusion* model (3.8B active) that generates by bi-directional parallel denoising — 256 tokens/forward pass, ~4–5× faster than autoregressive, with whole-block "self-correction." Fits 24 GB quantized. Apache/Gemma-licensed, built on Gemma 4.
+
+**Why the SYNTHESIST specifically** (not the orchestrator/main agent): the synthesist is the one voice that is **tool-stripped** (it reasons over the r1/r2 positions and writes the brief — no tool calls), so DiffusionGemma's biggest unknown — tool-use/function-calling — *doesn't apply to this role*. Its strengths map cleanly onto synthesis:
+- **Speed**: brief generation is the longest single-agent stage; 4–5× faster output shrinks `/discover` wall-clock.
+- **Whole-block self-correction**: the synthesist's failure mode is propagating upstream confabulation (e.g. the SIKE/git-SHA leaks). A model that evaluates the *entire* brief simultaneously and refines it may catch internal inconsistencies an autoregressive left-to-right pass commits to — directly relevant to failure mode #13 and the verification thesis.
+
+**Swap design** (drop-in once deployable):
+- Route the `synthesist` role to `diffusion-gemma:...-council` in `~/.openclaude/settings.json` `agentRouting` — no orchestrator change (the synthesist is already a clean role boundary in `debateSpawn.ts` → `synthesistFromAgentTool`).
+- Keep the existing `synthesist` prompt; the brief format is identical. `<think>`-strip + cap-hit detection paths are unaffected.
+- Tool-strip stays (it already has no tools), so the diffusion model's tool-call weakness is moot.
+
+**Blocked on deployability**: llama.cpp support is a *draft* PR ([#24423](https://github.com/ggml-org/llama.cpp/pull/24423)) — a dedicated `llama-diffusion-cli`, **not** the server — so Ollama can't host it yet. Until that merges and Ollama adopts it, DiffusionGemma can't be an Ollama-routed Council voice. Track the PR; revisit when it lands.
+
+**Thesis bonus** — once running, the A/B writes itself: **autoregressive synthesist (Mistral-Nemo) vs diffusion synthesist (DiffusionGemma)** on the same `/discover` prompts, scored by the multi-channel verifier + `/verify-citations`. Does whole-block diffusion self-correction lower the confabulation/flag rate? That's a novel generation-paradigm result for the verification thesis (lit-review §8.1).
+
+### [ ] Gemma 4 QAT small variants as resident fleet voices
+
+**Motivation** (2026-06-11): Gemma 4 QAT ([Google](https://blog.google/innovation-and-ai/technology/developers-tools/quantization-aware-training-gemma-4/)) ships quantization-aware-trained `Q4_0` checkpoints for E2B (<1 GB), E4B, 12B, 26B-MoE, with the claim that **QAT beats PTQ for quality at equal bit-depth**. Two distinct payoffs:
+
+1. **Fleet density / kill the swap-thrash.** Small QAT voices let many models stay resident under `OLLAMA_MAX_LOADED_MODELS` instead of swap-thrashing per `/discover` (the thing that made the 500-prompt sweep slow). Pull E4B/12B-QAT, `/voice-test` them on the fan-out roles, route the ones that hold up. Pairs with the dual-GPU residency analysis in `~/Research/council-specialists/HARDWARE.md`.
+2. **A thesis QAT-vs-PTQ baseline (RQ3).** Gemma-4-QAT is a production *generalist* QAT artifact. Compare it head-to-head against the project's QLoRA-physics-specialist→PTQ (from `~/Research/council-specialists/`) on physics prompts, scored by the verifier: **does a small domain specialist beat a QAT generalist in-domain?** Strong methodology-chapter result. (Also a quantitative anchor for the "QAT preserves more than PTQ" claim, validated on *our* eval rather than taken from the blog.)
+
+Easy: runs on Ollama today (unlike DiffusionGemma). Low effort, high value — do after the v1 physics specialist trains.
+
+### [ ] Nex-N2-mini as a generalist voice / orchestrator candidate
+
+**Motivation** (2026-06-11): Nex-N2-mini ([Nex AGI](https://huggingface.co/nex-agi/Nex-N2-mini)), Apache-2.0, is Qwen3.5-35B-A3B (35B total, 3B active MoE, 262K ctx) with a native agentic reasoning+tool-use+execution loop. At 4-bit it's ~18–20 GB → fits the 4090 (tight). Its **built-in tool use directly targets the local-model tool-call weakness** this project keeps hitting (the MCP loop, the `supportsTools` strip).
+
+**Trial**: `/voice-test` it as (a) a strong generalist fan-out voice and (b) the orchestrator/main-loop model for local-only `/discover`. Compare brief quality + tool-call reliability against the current fleet. Trade-off vs the Gemma-QAT density play: Nex-N2-mini is "one big ~18 GB voice," not "many small ones" — so it competes for the whole 4090 rather than co-residing. (Nex-N2-**Pro**, 397B/17B, needs ~794 GB → API-only → excluded from the local-only fleet by `project_local_only_council`; usable at most as an external teacher/comparison.)
 
 ---
 

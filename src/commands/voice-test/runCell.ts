@@ -21,7 +21,8 @@ import {
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
 import { getInitialSettings } from '../../utils/settings/settings.js'
 import type { ToolUseContext } from '../../Tool.js'
-import type { CanUseToolFn, SetMessagesFn } from '../../coordinator/council/councilSpawn.js'
+import type { SetMessagesFn } from '../../coordinator/council/councilSpawn.js'
+import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
 
 export const VOICE_TESTS_FILENAME = 'voice-tests.jsonl'
 export const VOICE_TEST_OUTPUT_CHAR_CAP = 30_000

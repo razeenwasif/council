@@ -44,6 +44,7 @@ Things deliberately not built yet, grouped by priority. Each item names what's m
 - [ ] Migrate config paths `.openclaude/` → `.council/`
 
 **P4 — speculative:**
+- [ ] (thesis research, not a Council feature) Sparse / topic-addressable FF grafting — graft MoE/PKM/FFF feed-forward into a pretrained dense LLM via distillation ("awaken params per topic"); the quantization-robustness slice bridges to the thesis. Full thread + runnable router-probe: [`research/sparse-ff-grafting/`](research/sparse-ff-grafting/README.md)
 - [ ] Council memory across sessions
 - [ ] Council voting weights (subsumed by self-improving Phase 3)
 - [ ] Per-prompt member swap / Cost budget per session / Council mode for read-only queries

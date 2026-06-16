@@ -1,0 +1,46 @@
+Router probe — allenai/OLMoE-1B-7B-0924
+  experts=64  top_k=8  topics=8  tokens=651
+
+  MEAN NMI(topic;expert) = 0.063   MEAN purity = 0.225
+
+  Interpretation guide (rough, model-dependent — compare against a shuffled-label
+  control for a real null; these bands are a starting heuristic):
+    NMI < 0.05  -> routing essentially topic-agnostic (premise weak)
+    0.05–0.20   -> mild topic signal
+    > 0.20      -> strong topic specialisation (premise supported)
+
+  Per-layer:
+    layer    nmi   purity   tokens
+        0  0.032   0.196   5208
+        1  0.035   0.204   5208
+        2  0.059   0.234   5208
+        3  0.053   0.217   5208
+        4  0.071   0.234   5208
+        5  0.087   0.245   5208
+        6  0.071   0.226   5208
+        7  0.060   0.209   5208
+        8  0.047   0.207   5208
+        9  0.044   0.206   5208
+       10  0.031   0.189   5208
+       11  0.077   0.233   5208
+       12  0.080   0.232   5208
+       13  0.076   0.249   5208
+       14  0.094   0.262   5208
+       15  0.088   0.252   5208
+
+  Top topic-specialised experts (share | layer | expert | topic | n):
+    1.00  L13  E42   law              n=1
+    1.00  L11  E62   computer_science n=3
+    1.00  L11  E53   computer_science n=1
+    1.00  L10  E25   finance          n=1
+    1.00  L9   E15   history          n=1
+    1.00  L8   E27   computer_science n=1
+    1.00  L7   E50   computer_science n=4
+    1.00  L7   E44   history          n=7
+    1.00  L4   E61   physics          n=1
+    0.86  L10  E40   history          n=7
+    0.85  L12  E19   history          n=26
+    0.83  L8   E15   history          n=12
+    0.83  L5   E29   computer_science n=65
+    0.82  L7   E43   history          n=65
+    0.79  L14  E49   history          n=24

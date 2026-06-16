@@ -165,6 +165,9 @@ Ranked by novelty × thesis-fit:
    collapse — directly attacks the §6 finding.
 - "Upcycle dense → MoE" bare: **done** (Sparse Upcycling / MoEfication / LLaMA-MoE), not novel.
 
+**How to structure & sequence these into actual papers → [`PAPER_STRATEGY.md`](./PAPER_STRATEGY.md)**
+(thesis-spine + folded-in quant chapter + a separate *gated* architecture paper; A→B sequencing).
+
 ## 10. Risks / blockers
 
 - **Compute reality.** Full FFN-replacement + KD recovery on a 7–12 B model is *heavier* than

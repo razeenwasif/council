@@ -11,7 +11,10 @@ one from scratch?**
 |---|---|
 | [`FEASIBILITY.md`](./FEASIBILITY.md) | Design + feasibility memo: the idea, mechanisms (MoE / PKM / FFF), graft-vs-scratch verdict, the make-or-break recipe, the thesis bridge (quantization), de-risk ladder, publishability. |
 | [`LITERATURE.md`](./LITERATURE.md) | Fact-checked, adversarially-verified literature map (deep-research `w7u8nbu3q` — **18 claims confirmed / 7 refuted**). Headline: cloned-FFN upcycling *fails* to specialize by topic; MoE quantizes better than dense but routers are fragile. |
+| [`PAPER_STRATEGY.md`](./PAPER_STRATEGY.md) | Publication plan: thesis-spine + folded-in quant chapter + a separate *gated* architecture paper; the A→B sequencing, decision gates tied to the de-risk ladder, venues, and the traps to avoid. |
 | [`experiments/router_probe.py`](./experiments/router_probe.py) | Experiment 1 — topic→expert routing probe for open MoEs. Runnable. |
+| [`experiments/null_control.py`](./experiments/null_control.py) | Independence-null for the probe NMI (subtracts the finite-sample floor). |
+| [`experiments/RESULTS.md`](./experiments/RESULTS.md) | Experiment 1 result write-up (OLMoE) + null control + interpretation. |
 | [`experiments/README.md`](./experiments/README.md) | How/when to run Experiment 1, the three blockers on probing Gemma 4 directly, and the OLMoE proxy. |
 
 ## TL;DR (see `FEASIBILITY.md` for the full argument)

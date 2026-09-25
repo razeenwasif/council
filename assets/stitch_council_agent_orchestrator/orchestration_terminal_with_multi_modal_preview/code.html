@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Council - Orchestration Terminal</title>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Config -->
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "tertiary-fixed": "#cfe6f2",
+                    "outline-variant": "#5b4039",
+                    "surface-variant": "#353534",
+                    "on-secondary": "#452b00",
+                    "tertiary-fixed-dim": "#b4cad6",
+                    "on-secondary-container": "#3c2500",
+                    "on-primary-fixed-variant": "#862200",
+                    "inverse-primary": "#b02f00",
+                    "on-surface": "#e5e2e1",
+                    "outline": "#ab8980",
+                    "surface-container-high": "#2a2a2a",
+                    "on-background": "#e5e2e1",
+                    "primary": "#ffb5a0",
+                    "inverse-on-surface": "#313030",
+                    "secondary-fixed": "#ffddb4",
+                    "surface-dim": "#131313",
+                    "primary-fixed-dim": "#ffb5a0",
+                    "surface": "#131313",
+                    "surface-container": "#201f1f",
+                    "secondary-fixed-dim": "#ffb954",
+                    "tertiary-container": "#7e949f",
+                    "tertiary": "#b4cad6",
+                    "on-primary": "#5f1500",
+                    "primary-container": "#ff5722",
+                    "on-surface-variant": "#e4beb4",
+                    "on-error": "#690005",
+                    "on-secondary-fixed": "#291800",
+                    "inverse-surface": "#e5e2e1",
+                    "surface-container-highest": "#353534",
+                    "on-tertiary-fixed-variant": "#354a53",
+                    "on-primary-container": "#541200",
+                    "surface-bright": "#393939",
+                    "on-secondary-fixed-variant": "#633f00",
+                    "on-error-container": "#ffdad6",
+                    "primary-fixed": "#ffdbd1",
+                    "error": "#ffb4ab",
+                    "on-primary-fixed": "#3b0900",
+                    "secondary-container": "#c3841b",
+                    "background": "#131313",
+                    "surface-container-low": "#1c1b1b",
+                    "error-container": "#93000a",
+                    "secondary": "#ffb954",
+                    "surface-tint": "#ffb5a0",
+                    "on-tertiary": "#1e333c",
+                    "surface-container-lowest": "#0e0e0e",
+                    "on-tertiary-container": "#172c35",
+                    "on-tertiary-fixed": "#071e27"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "margin-page": "32px",
+                    "gutter": "16px",
+                    "unit": "4px",
+                    "container-max": "1440px"
+            },
+            "fontFamily": {
+                    "code-sm": ["JetBrains Mono"],
+                    "headline-lg-mobile": ["Hanken Grotesk"],
+                    "headline-md": ["Hanken Grotesk"],
+                    "body-lg": ["JetBrains Mono"],
+                    "body-md": ["JetBrains Mono"],
+                    "headline-lg": ["Hanken Grotesk"],
+                    "label-md": ["JetBrains Mono"]
+            },
+            "fontSize": {
+                    "code-sm": ["12px", {"lineHeight": "18px", "fontWeight": "400"}],
+                    "headline-lg-mobile": ["24px", {"lineHeight": "32px", "fontWeight": "700"}],
+                    "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                    "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "label-md": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500"}]
+            }
+          }
+        }
+      }
+    </script>
+<style>
+        .blink {
+            animation: blinker 1s linear infinite;
+        }
+        @keyframes blinker {
+            50% { opacity: 0; }
+        }
+        
+        /* Custom scrollbar for terminal panes */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #131313;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #353534;
+            border: 1px solid #131313;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #ff5722;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md text-body-md selection:bg-primary-container selection:text-on-primary-container min-h-screen overflow-hidden">
+<!-- TopNavBar -->
+<header class="fixed w-full top-0 z-50 bg-surface dark:bg-surface border-b border-outline-variant shadow-none flex justify-between items-center px-margin-page h-16">
+<div class="flex items-center gap-4">
+<span class="font-headline-md text-headline-md font-bold tracking-tighter text-primary">COUNCIL</span>
+</div>
+<div class="hidden md:flex items-center gap-6">
+<nav class="flex items-center gap-6 font-code-sm text-code-sm text-on-surface-variant">
+<span class="hover:text-primary transition-colors cursor-pointer active:opacity-80">SESSION: 04:20:12</span>
+</nav>
+</div>
+<div class="flex items-center">
+<button class="font-code-sm text-code-sm text-primary dark:text-primary hover:text-primary transition-colors cursor-pointer active:opacity-80 border border-primary px-3 py-1 bg-transparent">
+                Safe Mode
+            </button>
+</div>
+</header>
+<!-- SideNavBar (Web Only) -->
+<aside class="hidden lg:flex flex-col h-screen fixed left-0 top-16 w-64 bg-surface-container dark:bg-surface-container border-r border-outline-variant shadow-none z-40 pb-16">
+<div class="p-4 border-b border-surface-container-highest">
+<h2 class="font-headline-lg text-headline-lg text-primary tracking-tighter">AGENTS</h2>
+<p class="font-code-sm text-code-sm text-on-surface-variant mt-1">7 ACTIVE</p>
+</div>
+<nav class="flex-1 overflow-y-auto py-2 font-code-sm text-code-sm">
+<a class="text-on-surface-variant px-4 py-3 flex items-center gap-3 hover:bg-surface-variant hover:text-on-surface transition-all duration-150 ease-in-out" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">architecture</span>
+                Architect
+            </a>
+<a class="text-on-surface-variant px-4 py-3 flex items-center gap-3 hover:bg-surface-variant hover:text-on-surface transition-all duration-150 ease-in-out" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">search</span>
+                Researcher
+            </a>
+<a class="text-on-surface-variant px-4 py-3 flex items-center gap-3 hover:bg-surface-variant hover:text-on-surface transition-all duration-150 ease-in-out" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">analytics</span>
+                Analyst
+            </a>
+<a class="text-on-surface-variant px-4 py-3 flex items-center gap-3 hover:bg-surface-variant hover:text-on-surface transition-all duration-150 ease-in-out" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">terminal</span>
+                Coder
+            </a>
+<a class="text-on-surface-variant px-4 py-3 flex items-center gap-3 hover:bg-surface-variant hover:text-on-surface transition-all duration-150 ease-in-out" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">fact_check</span>
+                Reviewer
+            </a>
+<a class="text-on-surface-variant px-4 py-3 flex items-center gap-3 hover:bg-surface-variant hover:text-on-surface transition-all duration-150 ease-in-out" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">edit_note</span>
+                Scribe
+            </a>
+<a class="border-l-2 border-primary text-primary bg-surface-container-highest px-4 py-3 flex items-center gap-3 transition-all duration-150 ease-in-out" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">hub</span>
+                Orchestrator
+            </a>
+</nav>
+</aside>
+<!-- BottomNavBar (Mobile Only) -->
+<nav class="md:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around items-center p-4 bg-surface-container-lowest dark:bg-surface-container-lowest border-t border-primary shadow-none">
+<a class="text-primary font-bold flex flex-col items-center justify-center font-code-sm text-code-sm hover:text-primary active:scale-95 transition-transform" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">terminal</span>
+<span>Command</span>
+</a>
+<a class="text-on-surface-variant flex flex-col items-center justify-center font-code-sm text-code-sm hover:text-primary active:scale-95 transition-transform" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">mic</span>
+<span>Voice</span>
+</a>
+<a class="text-on-surface-variant flex flex-col items-center justify-center font-code-sm text-code-sm hover:text-primary active:scale-95 transition-transform" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">image</span>
+<span>Media</span>
+</a>
+<a class="text-on-surface-variant flex flex-col items-center justify-center font-code-sm text-code-sm hover:text-primary active:scale-95 transition-transform" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">attach_file</span>
+<span>Files</span>
+</a>
+</nav>
+<!-- Main Canvas -->
+<main class="pt-16 pb-20 md:pb-0 lg:pl-64 h-screen flex flex-col p-4 lg:p-6 gap-gutter">
+<div class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-gutter min-h-0">
+<!-- Activity Flow Pane -->
+<section class="lg:col-span-8 flex flex-col border border-surface-container-highest bg-surface relative h-full">
+<!-- Pane Header -->
+<header class="bg-surface-container border-b border-surface-container-highest px-6 py-3 flex justify-between items-center sticky top-0 z-10">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-[18px]">flowsheet</span>
+<h2 class="font-label-md text-label-md text-on-surface tracking-widest uppercase">Activity Flow</h2>
+</div>
+<div class="flex gap-2">
+<span class="px-2 py-0.5 border border-surface-container-highest font-code-sm text-code-sm text-on-surface-variant">AUTO-SCROLL</span>
+</div>
+</header>
+<!-- Pane Body (Terminal Logs) -->
+<div class="flex-1 overflow-y-auto p-6 font-code-sm text-code-sm space-y-3 bg-[#0a0a0a]">
+<div class="flex gap-4 items-start group hover:bg-surface-container-low p-1 -mx-1 rounded transition-colors">
+<span class="text-on-surface-variant opacity-50 shrink-0">[14:01:22]</span>
+<span class="text-tertiary shrink-0 w-24">System:</span>
+<span class="text-on-surface">Initializing Council session... Connection established.</span>
+</div>
+<div class="flex gap-4 items-start group hover:bg-surface-container-low p-1 -mx-1 rounded transition-colors">
+<span class="text-on-surface-variant opacity-50 shrink-0">[14:01:25]</span>
+<span class="text-primary-container shrink-0 w-24">User:</span>
+<span class="text-on-surface">council &gt; orchestrate software development for project 'Phoenix'</span>
+</div>
+<div class="flex gap-4 items-start group hover:bg-surface-container-low p-1 -mx-1 rounded transition-colors">
+<span class="text-on-surface-variant opacity-50 shrink-0">[14:01:26]</span>
+<span class="text-primary shrink-0 w-24">Orchestrator:</span>
+<span class="text-on-surface">Parsing request. Activating Agents: Architect, Researcher, Coder.</span>
+</div>
+<div class="flex gap-4 items-start group hover:bg-surface-container-low p-1 -mx-1 rounded transition-colors border-l border-primary-container pl-3 ml-1 bg-surface-container-lowest">
+<span class="text-on-surface-variant opacity-50 shrink-0">[14:01:28]</span>
+<span class="text-secondary shrink-0 w-24">Architect:</span>
+<span class="text-on-surface">Proposing new schema 'phoenix_core_v1'. Requires multi-tenant DB structure.</span>
+</div>
+<div class="flex gap-4 items-start group hover:bg-surface-container-low p-1 -mx-1 rounded transition-colors border-l border-primary-container pl-3 ml-1 bg-surface-container-lowest">
+<span class="text-on-surface-variant opacity-50 shrink-0">[14:01:31]</span>
+<span class="text-tertiary-fixed shrink-0 w-24">Researcher:</span>
+<span class="text-on-surface">Validating multi-tenant patterns. Recommended approach: Row-Level Security (RLS) via Postgres.</span>
+</div>
+<div class="flex gap-4 items-start group hover:bg-surface-container-low p-1 -mx-1 rounded transition-colors border-l border-primary-container pl-3 ml-1 bg-surface-container-lowest">
+<span class="text-on-surface-variant opacity-50 shrink-0">[14:01:35]</span>
+<span class="text-secondary-fixed shrink-0 w-24">Coder:</span>
+<span class="text-on-surface">Implementing interface based on schema proposal and RLS constraints. Generating Prisma definitions...</span>
+</div>
+<div class="flex gap-4 items-start group hover:bg-surface-container-low p-1 -mx-1 rounded transition-colors">
+<span class="text-on-surface-variant opacity-50 shrink-0">[14:01:40]</span>
+<span class="text-primary shrink-0 w-24">Orchestrator:</span>
+<span class="text-on-surface text-primary-fixed-dim">Awaiting task completion from Coder.</span>
+</div>
+</div>
+<!-- Command Prompt Input -->
+<div class="border-t border-surface-container-highest bg-[#000000] flex flex-col">
+<!-- PENDING_ATTACHMENTS Section -->
+<div class="p-4 border-b border-surface-container-highest/50">
+<div class="flex items-center justify-between mb-3">
+<span class="font-code-sm text-[10px] text-primary-container tracking-widest uppercase">┌─ PENDING_ATTACHMENTS ─┐</span>
+</div>
+<div class="flex flex-wrap gap-4">
+<!-- Image Preview -->
+<div class="relative group border border-surface-container-highest p-1 bg-surface-container-low">
+<div class="w-16 h-16 bg-surface-container-highest flex items-center justify-center overflow-hidden">
+<span class="material-symbols-outlined text-on-surface-variant">image</span>
+</div>
+<div class="mt-1 flex items-center justify-between gap-2">
+<span class="font-code-sm text-[10px] text-on-surface-variant truncate w-12">specimen_A.jpg</span>
+<button class="text-primary hover:text-white transition-colors">
+<span class="material-symbols-outlined text-[14px]">close</span>
+</button>
+</div>
+</div>
+<!-- Code Preview -->
+<div class="relative group border border-surface-container-highest p-1 bg-surface-container-low">
+<div class="w-16 h-16 bg-surface-container-highest flex items-center justify-center">
+<span class="material-symbols-outlined text-secondary">terminal</span>
+</div>
+<div class="mt-1 flex items-center justify-between gap-2">
+<span class="font-code-sm text-[10px] text-on-surface-variant truncate w-12">data_analysis.py</span>
+<button class="text-primary hover:text-white transition-colors">
+<span class="material-symbols-outlined text-[14px]">close</span>
+</button>
+</div>
+</div>
+<!-- PDF Preview -->
+<div class="relative group border border-surface-container-highest p-1 bg-surface-container-low">
+<div class="w-16 h-16 bg-surface-container-highest flex items-center justify-center">
+<span class="material-symbols-outlined text-tertiary">description</span>
+</div>
+<div class="mt-1 flex items-center justify-between gap-2">
+<span class="font-code-sm text-[10px] text-on-surface-variant truncate w-12">research_notes.pdf</span>
+<button class="text-primary hover:text-white transition-colors">
+<span class="material-symbols-outlined text-[14px]">close</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Command Prompt Input -->
+<div class="p-4 flex items-center gap-3">
+<span class="text-primary-container font-bold text-lg leading-none">&gt;</span>
+<div class="flex-1 flex items-center">
+<span class="font-code-sm text-code-sm text-on-surface bg-transparent border-none outline-none w-auto whitespace-pre">council &gt; orchestrate software development for project 'Phoenix'</span>
+<span class="w-2 h-4 bg-primary-container blink ml-1 inline-block"></span>
+</div>
+</div>
+</div>
+</section>
+<!-- System Health Pane -->
+<section class="lg:col-span-4 flex flex-col border border-surface-container-highest bg-surface h-full">
+<!-- Pane Header -->
+<header class="bg-surface-container border-b border-surface-container-highest px-6 py-3 flex justify-between items-center">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-on-surface-variant text-[18px]">memory</span>
+<h2 class="font-label-md text-label-md text-on-surface tracking-widest uppercase">System Health</h2>
+</div>
+<span class="font-code-sm text-code-sm text-secondary">OPTIMAL</span>
+</header>
+<!-- Pane Body -->
+<div class="p-6 space-y-8 flex-1 overflow-y-auto">
+<!-- Metric: Context Window -->
+<div class="space-y-2">
+<div class="flex justify-between font-code-sm text-code-sm">
+<span class="text-on-surface-variant">CONTEXT_WINDOW</span>
+<span class="text-on-surface">64K / 128K</span>
+</div>
+<div class="h-2 w-full bg-surface-container-highest border border-surface-container-high relative">
+<div class="absolute top-0 left-0 h-full bg-secondary w-1/2"></div>
+</div>
+<p class="font-code-sm text-[10px] text-on-surface-variant text-right">50% UTILIZATION</p>
+</div>
+<!-- Metric: API Throughput -->
+<div class="space-y-2">
+<div class="flex justify-between font-code-sm text-code-sm">
+<span class="text-on-surface-variant">API_THROUGHPUT</span>
+<span class="text-on-surface">420 req/m</span>
+</div>
+<div class="h-16 w-full flex items-end gap-1 border-b border-surface-container-highest pb-1">
+<!-- Simulated bar chart -->
+<div class="w-full bg-surface-container-highest h-[30%] hover:bg-primary-container transition-colors"></div>
+<div class="w-full bg-surface-container-highest h-[45%] hover:bg-primary-container transition-colors"></div>
+<div class="w-full bg-surface-container-highest h-[20%] hover:bg-primary-container transition-colors"></div>
+<div class="w-full bg-surface-container-highest h-[60%] hover:bg-primary-container transition-colors"></div>
+<div class="w-full bg-surface-container-highest h-[80%] hover:bg-primary-container transition-colors"></div>
+<div class="w-full bg-primary-container h-[75%] shadow-[0_0_8px_rgba(255,87,34,0.4)]"></div>
+<div class="w-full bg-surface-container-highest h-[50%] hover:bg-primary-container transition-colors"></div>
+<div class="w-full bg-surface-container-highest h-[40%] hover:bg-primary-container transition-colors"></div>
+</div>
+</div>
+<!-- Active Models List -->
+<div class="space-y-4 pt-4 border-t border-surface-container-highest">
+<h3 class="font-label-md text-label-md text-on-surface-variant tracking-widest">ACTIVE_MODELS</h3>
+<ul class="font-code-sm text-code-sm space-y-3">
+<li class="flex items-center justify-between border-l border-primary-container pl-3">
+<span class="text-on-surface">GPT-4-Turbo</span>
+<span class="px-2 py-0.5 bg-[rgba(255,87,34,0.1)] text-primary-container border border-primary-container text-[10px]">ROUTING</span>
+</li>
+<li class="flex items-center justify-between border-l border-surface-container-highest pl-3">
+<span class="text-on-surface-variant">Claude-3-Opus</span>
+<span class="px-2 py-0.5 border border-surface-container-highest text-on-surface-variant text-[10px]">ANALYSIS</span>
+</li>
+<li class="flex items-center justify-between border-l border-surface-container-highest pl-3">
+<span class="text-on-surface-variant">Llama-3-70B</span>
+<span class="px-2 py-0.5 border border-surface-container-highest text-on-surface-variant text-[10px]">CODE_GEN</span>
+</li>
+</ul>
+</div>
+</div>
+</section>
+</div>
+</main>
+</body></html>

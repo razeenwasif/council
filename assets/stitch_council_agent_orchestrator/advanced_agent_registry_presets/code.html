@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Agent Registry &amp; Configuration</title>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Theme Configuration -->
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "tertiary-fixed": "#cfe6f2",
+                    "outline-variant": "#5b4039",
+                    "surface-variant": "#353534",
+                    "on-secondary": "#452b00",
+                    "tertiary-fixed-dim": "#b4cad6",
+                    "on-secondary-container": "#3c2500",
+                    "on-primary-fixed-variant": "#862200",
+                    "inverse-primary": "#b02f00",
+                    "on-surface": "#e5e2e1",
+                    "outline": "#ab8980",
+                    "surface-container-high": "#2a2a2a",
+                    "on-background": "#e5e2e1",
+                    "primary": "#ffb5a0",
+                    "inverse-on-surface": "#313030",
+                    "secondary-fixed": "#ffddb4",
+                    "surface-dim": "#131313",
+                    "primary-fixed-dim": "#ffb5a0",
+                    "surface": "#131313",
+                    "surface-container": "#201f1f",
+                    "secondary-fixed-dim": "#ffb954",
+                    "tertiary-container": "#7e949f",
+                    "tertiary": "#b4cad6",
+                    "on-primary": "#5f1500",
+                    "primary-container": "#ff5722",
+                    "on-surface-variant": "#e4beb4",
+                    "on-error": "#690005",
+                    "on-secondary-fixed": "#291800",
+                    "inverse-surface": "#e5e2e1",
+                    "surface-container-highest": "#353534",
+                    "on-tertiary-fixed-variant": "#354a53",
+                    "on-primary-container": "#541200",
+                    "surface-bright": "#393939",
+                    "on-secondary-fixed-variant": "#633f00",
+                    "on-error-container": "#ffdad6",
+                    "primary-fixed": "#ffdbd1",
+                    "error": "#ffb4ab",
+                    "on-primary-fixed": "#3b0900",
+                    "secondary-container": "#c3841b",
+                    "background": "#131313",
+                    "surface-container-low": "#1c1b1b",
+                    "error-container": "#93000a",
+                    "secondary": "#ffb954",
+                    "surface-tint": "#ffb5a0",
+                    "on-tertiary": "#1e333c",
+                    "surface-container-lowest": "#0e0e0e",
+                    "on-tertiary-container": "#172c35",
+                    "on-tertiary-fixed": "#071e27"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "margin-page": "32px",
+                    "gutter": "16px",
+                    "unit": "4px",
+                    "container-max": "1440px"
+            },
+            "fontFamily": {
+                    "code-sm": ["JetBrains Mono"],
+                    "headline-lg-mobile": ["Hanken Grotesk"],
+                    "headline-md": ["Hanken Grotesk"],
+                    "body-lg": ["JetBrains Mono"],
+                    "body-md": ["JetBrains Mono"],
+                    "headline-lg": ["Hanken Grotesk"],
+                    "label-md": ["JetBrains Mono"]
+            },
+            "fontSize": {
+                    "code-sm": ["12px", { "lineHeight": "18px", "fontWeight": "400" }],
+                    "headline-lg-mobile": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                    "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                    "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                    "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                    "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                    "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500" }]
+            }
+          }
+        }
+      }
+    </script>
+<style>
+        /* Custom scrollbar for TUI feel */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #131313;
+            border-left: 1px solid #353534;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #353534;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #5b4039;
+        }
+        .blinking-cursor::after {
+            content: '█';
+            animation: blink 1s step-end infinite;
+            color: #ff5722;
+            margin-left: 4px;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+        .tui-corner {
+            position: absolute;
+            font-family: 'JetBrains Mono';
+            line-height: 1;
+            color: #5b4039;
+            background: #131313;
+            padding: 2px;
+            z-index: 10;
+        }
+        .tui-border {
+            border: 1px solid #5b4039;
+            position: relative;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md min-h-screen flex flex-col md:flex-row overflow-hidden selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopNavBar -->
+<header class="bg-surface text-primary font-code-sm text-code-sm flex justify-between items-center w-full px-margin-page h-16 border-b border-outline-variant fixed top-0 z-40">
+<div class="font-headline-md text-headline-md font-bold tracking-tighter text-primary">COUNCIL</div>
+<nav class="hidden md:flex gap-6">
+<a class="text-on-surface-variant hover:text-primary transition-colors cursor-pointer active:opacity-80" href="#">SESSION: 04:20:12</a>
+</nav>
+<button class="border border-primary text-primary px-4 py-1 font-label-md text-label-md hover:bg-primary-container hover:text-on-primary-container transition-colors uppercase tracking-widest">Safe Mode</button>
+</header>
+<!-- SideNavBar (Desktop) -->
+<nav class="hidden lg:flex flex-col h-screen fixed left-0 top-16 bg-surface-container text-secondary font-code-sm text-code-sm border-r border-outline-variant w-64 z-30">
+<div class="p-6 border-b border-outline-variant">
+<h2 class="font-headline-lg text-headline-lg text-primary tracking-tighter">AGENTS</h2>
+<p class="text-on-surface-variant mt-2">7 ACTIVE</p>
+</div>
+<div class="overflow-y-auto py-4 flex flex-col border-b border-outline-variant max-h-[40vh]">
+<a class="border-l-2 border-primary text-primary bg-surface-container-highest px-4 py-3 flex items-center gap-3 transition-all duration-150 ease-in-out cursor-pointer active:opacity-80" href="#">
+<span class="material-symbols-outlined" data-icon="architecture">architecture</span>
+                Architect
+            </a>
+<a class="text-on-surface-variant px-4 py-3 flex items-center gap-3 hover:bg-surface-variant hover:text-on-surface transition-all duration-150 ease-in-out cursor-pointer active:opacity-80" href="#">
+<span class="material-symbols-outlined" data-icon="search">search</span>
+                Researcher
+            </a>
+<a class="text-on-surface-variant px-4 py-3 flex items-center gap-3 hover:bg-surface-variant hover:text-on-surface transition-all duration-150 ease-in-out cursor-pointer active:opacity-80" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+                Analyst
+            </a>
+<a class="text-on-surface-variant px-4 py-3 flex items-center gap-3 hover:bg-surface-variant hover:text-on-surface transition-all duration-150 ease-in-out cursor-pointer active:opacity-80" href="#">
+<span class="material-symbols-outlined" data-icon="terminal">terminal</span>
+                Coder
+            </a>
+<a class="text-on-surface-variant px-4 py-3 flex items-center gap-3 hover:bg-surface-variant hover:text-on-surface transition-all duration-150 ease-in-out cursor-pointer active:opacity-80" href="#">
+<span class="material-symbols-outlined" data-icon="fact_check">fact_check</span>
+                Reviewer
+            </a>
+<a class="text-on-surface-variant px-4 py-3 flex items-center gap-3 hover:bg-surface-variant hover:text-on-surface transition-all duration-150 ease-in-out cursor-pointer active:opacity-80" href="#">
+<span class="material-symbols-outlined" data-icon="edit_note">edit_note</span>
+                Scribe
+            </a>
+<a class="text-on-surface-variant px-4 py-3 flex items-center gap-3 hover:bg-surface-variant hover:text-on-surface transition-all duration-150 ease-in-out cursor-pointer active:opacity-80" href="#">
+<span class="material-symbols-outlined" data-icon="hub">hub</span>
+                Orchestrator
+            </a>
+</div>
+<div class="p-6 border-b border-outline-variant flex items-center text-on-surface-variant gap-2">
+<span class="font-code-sm">├─</span>
+<h2 class="font-headline-md text-body-lg text-primary tracking-tighter uppercase">Recipes</h2>
+<span class="font-code-sm flex-1 overflow-hidden">────────────────────────</span>
+</div>
+<div class="flex-1 overflow-y-auto py-4 flex flex-col">
+<a class="text-on-surface-variant px-4 py-2 flex flex-col gap-1 hover:bg-surface-variant hover:text-on-surface transition-all duration-150 ease-in-out cursor-pointer" href="#">
+<span class="text-primary">&gt; Security Audit</span>
+<span class="text-xs opacity-70">[A, R, C, Rv]</span>
+</a>
+<a class="text-on-surface-variant px-4 py-2 flex flex-col gap-1 hover:bg-surface-variant hover:text-on-surface transition-all duration-150 ease-in-out cursor-pointer" href="#">
+<span class="text-primary">&gt; React Migration</span>
+<span class="text-xs opacity-70">[A, C, Rv, S]</span>
+</a>
+<a class="text-on-surface-variant px-4 py-2 flex flex-col gap-1 hover:bg-surface-variant hover:text-on-surface transition-all duration-150 ease-in-out cursor-pointer" href="#">
+<span class="text-primary">&gt; Data Synthesis</span>
+<span class="text-xs opacity-70">[R, An, O]</span>
+</a>
+</div>
+</nav>
+<!-- Main Canvas -->
+<main class="flex-1 w-full lg:ml-64 mt-16 mb-20 md:mb-0 h-[calc(100vh-4rem)] overflow-y-auto bg-background p-margin-page">
+<div class="max-w-[container-max] mx-auto grid grid-cols-1 xl:grid-cols-12 gap-margin-page items-start">
+<!-- Agent Grid Area -->
+<div class="xl:col-span-8 flex flex-col gap-gutter">
+<div class="flex items-center gap-4 mb-4 border-b border-surface-variant pb-4 font-code-sm">
+<span class="text-on-surface-variant">┌─</span>
+<h1 class="font-headline-lg text-headline-lg-mobile md:text-headline-lg text-on-background tracking-tighter uppercase">Registry Overview</h1>
+<span class="text-on-surface-variant flex-1 overflow-hidden whitespace-nowrap">───────────────────────────────────────────────────────────────────────────────────</span>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-gutter">
+<!-- Agent Card Template -->
+<script>
+                        const agents = [
+                            { name: "Architect", icon: "architecture", skill: "92%", task: "System Topography", lat: "12ms", tok: "1,204", status: "ACTIVE" },
+                            { name: "Researcher", icon: "search", skill: "88%", task: "Data Aggregation", lat: "45ms", tok: "8,430", status: "ACTIVE" },
+                            { name: "Analyst", icon: "analytics", skill: "95%", task: "Pattern Matching", lat: "18ms", tok: "3,102", status: "IDLE" },
+                            { name: "Coder", icon: "terminal", skill: "99%", task: "Implementation", lat: "8ms", tok: "12,050", status: "ACTIVE" },
+                            { name: "Reviewer", icon: "fact_check", skill: "91%", task: "Code Audit", lat: "22ms", tok: "4,200", status: "IDLE" },
+                            { name: "Scribe", icon: "edit_note", skill: "85%", task: "Documentation", lat: "30ms", tok: "1,100", status: "IDLE" },
+                            { name: "Orchestrator", icon: "hub", skill: "98%", task: "Thread Management", lat: "5ms", tok: "540", status: "ACTIVE" }
+                        ];
+
+                        const sparklines = [
+                            "▂▃▅▆▇██▇▆▅▃▂",
+                            "▃▅▇█▇▅▃ ▃▅▇█",
+                            "▂ ▃ ▄ ▅ ▆ ▇ ",
+                            "██▇▆▅▃▂  ▂▃▅",
+                            "▅▆▇█▇▆▅▄▃▂ ▂"
+                        ];
+
+                        agents.forEach((agent, i) => {
+                            const isIdle = agent.status === 'IDLE';
+                            const statusColor = isIdle ? 'text-on-surface-variant' : 'text-primary';
+                            const borderColor = isIdle ? 'border-surface-variant' : 'border-outline-variant';
+                            const sparkline = sparklines[i % sparklines.length];
+                            
+                            document.write(`
+                                <div class="tui-border bg-surface p-6 flex flex-col relative group hover:border-primary transition-colors">
+                                    <span class="tui-corner -top-2 -left-2 bg-surface">┌</span>
+                                    <span class="tui-corner -top-2 -right-2 bg-surface">┐</span>
+                                    <span class="tui-corner -bottom-2 -left-2 bg-surface">└</span>
+                                    <span class="tui-corner -bottom-2 -right-2 bg-surface">┘</span>
+                                    
+                                    <div class="flex justify-between items-start mb-6 border-b border-surface-variant pb-4">
+                                        <div class="flex items-center gap-3">
+                                            <span class="material-symbols-outlined ${statusColor}">${agent.icon}</span>
+                                            <h3 class="font-headline-md text-headline-md text-on-background uppercase tracking-tight">${agent.name}</h3>
+                                        </div>
+                                        <div class="border border-outline-variant px-2 py-1 bg-surface-container font-label-md text-label-md ${statusColor}">
+                                            [${agent.status}]
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="flex flex-col gap-3 font-code-sm text-code-sm text-on-surface-variant">
+                                        <div class="flex justify-between">
+                                            <span>> SKILL_LVL</span>
+                                            <span class="text-on-background">[${'█'.repeat(Math.floor(parseInt(agent.skill)/10))}${'░'.repeat(10-Math.floor(parseInt(agent.skill)/10))}] ${agent.skill}</span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span>> CUR_TASK</span>
+                                            <span class="text-on-background truncate max-w-[150px] text-right">${agent.task}</span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span>> LATENCY</span>
+                                            <span class="text-on-background">${agent.lat}</span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span>> TOKEN_USE</span>
+                                            <span class="text-on-background">${agent.tok}</span>
+                                        </div>
+                                        <div class="flex justify-between pt-2 border-t border-surface-variant mt-1">
+                                            <span>> T_RATE</span>
+                                            <span class="${statusColor} tracking-[2px]">${sparkline}</span>
+                                        </div>
+                                    </div>
+                                    ${!isIdle ? `<div class="absolute bottom-0 left-0 w-full h-[2px] bg-primary/20"><div class="h-full bg-primary animate-pulse" style="width: ${Math.random() * 50 + 50}%"></div></div>` : ''}
+                                </div>
+                            `);
+                        });
+                    </script>
+</div>
+</div>
+<!-- Configuration Panel -->
+<aside class="xl:col-span-4 tui-border bg-surface-container flex flex-col h-fit sticky top-margin-page">
+<span class="tui-corner -top-2 -left-2 bg-surface-container">┌</span>
+<span class="tui-corner -top-2 -right-2 bg-surface-container">┐</span>
+<span class="tui-corner -bottom-2 -left-2 bg-surface-container">└</span>
+<span class="tui-corner -bottom-2 -right-2 bg-surface-container">┘</span>
+<div class="bg-surface-container-high p-4 border-b border-outline-variant flex items-center gap-2">
+<span class="text-on-surface-variant font-code-sm">├─</span>
+<h2 class="font-headline-md text-headline-md text-on-background uppercase tracking-tight blinking-cursor">Cluster Config</h2>
+<span class="text-on-surface-variant font-code-sm flex-1 overflow-hidden">──────────────</span>
+</div>
+<div class="p-6 flex flex-col gap-6 font-code-sm text-code-sm">
+<!-- Form Group -->
+<div class="flex flex-col gap-2">
+<label class="text-on-surface-variant uppercase tracking-widest">&gt; Base Model</label>
+<div class="relative">
+<select class="w-full bg-background border border-outline-variant text-on-background p-3 appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-code-sm rounded-none">
+<option>COUNCIL-BASE-V4</option>
+<option>COUNCIL-FAST-V4</option>
+<option>EXTERNAL-GPT-4O</option>
+<option>EXTERNAL-CLAUDE-3.5</option>
+</select>
+<span class="material-symbols-outlined absolute right-3 top-3 text-on-surface-variant pointer-events-none">expand_more</span>
+</div>
+</div>
+<!-- Form Group -->
+<div class="flex flex-col gap-2">
+<label class="text-on-surface-variant uppercase tracking-widest flex justify-between">
+<span>&gt; Temperature</span>
+<span class="text-primary" id="temp-val">0.7</span>
+</label>
+<input class="w-full accent-primary h-1 bg-surface-variant rounded-none appearance-none cursor-pointer" max="1" min="0" oninput="document.getElementById('temp-val').innerText = this.value" step="0.1" type="range" value="0.7"/>
+<div class="flex justify-between text-on-surface-variant opacity-50 text-[10px]">
+<span>DETERMINISTIC</span>
+<span>CREATIVE</span>
+</div>
+</div>
+<!-- Form Group -->
+<div class="flex flex-col gap-2">
+<label class="text-on-surface-variant uppercase tracking-widest">&gt; Context Window</label>
+<div class="relative">
+<select class="w-full bg-background border border-outline-variant text-on-background p-3 appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-code-sm rounded-none">
+<option>8,192 TOKENS</option>
+<option>16,384 TOKENS</option>
+<option selected="">32,768 TOKENS</option>
+<option>128,000 TOKENS</option>
+</select>
+<span class="material-symbols-outlined absolute right-3 top-3 text-on-surface-variant pointer-events-none">expand_more</span>
+</div>
+</div>
+<!-- Form Group -->
+<div class="flex flex-col gap-2">
+<label class="text-on-surface-variant uppercase tracking-widest">&gt; Routing Priority</label>
+<div class="relative">
+<select class="w-full bg-background border border-outline-variant text-on-background p-3 appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-code-sm rounded-none">
+<option>BALANCED</option>
+<option>LATENCY_OPTIMIZED</option>
+<option>REASONING_OPTIMIZED</option>
+<option>COST_OPTIMIZED</option>
+</select>
+<span class="material-symbols-outlined absolute right-3 top-3 text-on-surface-variant pointer-events-none">expand_more</span>
+</div>
+</div>
+<!-- Form Group -->
+<div class="flex flex-col gap-2 mt-2">
+<label class="text-on-surface-variant uppercase tracking-widest">&gt; Active Modules</label>
+<label class="flex items-center gap-3 cursor-pointer group">
+<div class="w-5 h-5 border border-outline-variant bg-background flex items-center justify-center group-hover:border-primary">
+<div class="w-3 h-3 bg-primary hidden group-has-[:checked]:block"></div>
+</div>
+<input checked="" class="hidden" type="checkbox"/>
+<span class="text-on-background group-hover:text-primary transition-colors">Semantic Cache</span>
+</label>
+<label class="flex items-center gap-3 cursor-pointer group">
+<div class="w-5 h-5 border border-outline-variant bg-background flex items-center justify-center group-hover:border-primary">
+<div class="w-3 h-3 bg-primary hidden group-has-[:checked]:block"></div>
+</div>
+<input checked="" class="hidden" type="checkbox"/>
+<span class="text-on-background group-hover:text-primary transition-colors">Auto-Scaling</span>
+</label>
+<label class="flex items-center gap-3 cursor-pointer group">
+<div class="w-5 h-5 border border-outline-variant bg-background flex items-center justify-center group-hover:border-primary">
+<div class="w-3 h-3 bg-primary hidden group-has-[:checked]:block"></div>
+</div>
+<input class="hidden" type="checkbox"/>
+<span class="text-on-background group-hover:text-primary transition-colors">Debug Logging</span>
+</label>
+</div>
+<div class="border-t border-surface-variant pt-6 mt-2 relative">
+<button class="w-full bg-primary-container text-surface-container-lowest font-body-lg text-body-lg font-bold py-3 uppercase tracking-widest hover:bg-primary transition-colors active:scale-[0.98]">
+                            [ APPLY CONFIG ]
+                        </button>
+</div>
+</div>
+</aside>
+</div>
+</main>
+<!-- BottomNavBar (Mobile) -->
+<nav class="md:hidden fixed bottom-0 left-0 w-full z-50 bg-surface-container-lowest text-primary font-code-sm text-code-sm border-t border-primary flex justify-around items-center p-4">
+<a class="text-primary font-bold flex flex-col items-center justify-center transition-transform active:scale-95 cursor-pointer" href="#">
+<span class="material-symbols-outlined" data-icon="terminal">terminal</span>
+            Command
+        </a>
+<a class="text-on-surface-variant flex flex-col items-center justify-center hover:text-primary transition-transform active:scale-95 cursor-pointer" href="#">
+<span class="material-symbols-outlined" data-icon="mic">mic</span>
+            Voice
+        </a>
+<a class="text-on-surface-variant flex flex-col items-center justify-center hover:text-primary transition-transform active:scale-95 cursor-pointer" href="#">
+<span class="material-symbols-outlined" data-icon="image">image</span>
+            Media
+        </a>
+<a class="text-on-surface-variant flex flex-col items-center justify-center hover:text-primary transition-transform active:scale-95 cursor-pointer" href="#">
+<span class="material-symbols-outlined" data-icon="attach_file">attach_file</span>
+            Files
+        </a>
+</nav>
+</body></html>

@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>COUNCIL - Collaborative Workspace</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&amp;family=Hanken+Grotesk:wght@600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "tertiary-fixed": "#cfe6f2",
+                        "outline-variant": "#5b4039",
+                        "surface-variant": "#353534",
+                        "on-secondary": "#452b00",
+                        "tertiary-fixed-dim": "#b4cad6",
+                        "on-secondary-container": "#3c2500",
+                        "on-primary-fixed-variant": "#862200",
+                        "inverse-primary": "#b02f00",
+                        "on-surface": "#e5e2e1",
+                        "outline": "#ab8980",
+                        "surface-container-high": "#2a2a2a",
+                        "on-background": "#e5e2e1",
+                        "primary": "#ffb5a0",
+                        "inverse-on-surface": "#313030",
+                        "secondary-fixed": "#ffddb4",
+                        "surface-dim": "#131313",
+                        "primary-fixed-dim": "#ffb5a0",
+                        "surface": "#131313",
+                        "surface-container": "#201f1f",
+                        "secondary-fixed-dim": "#ffb954",
+                        "tertiary-container": "#7e949f",
+                        "tertiary": "#b4cad6",
+                        "on-primary": "#5f1500",
+                        "primary-container": "#ff5722",
+                        "on-surface-variant": "#e4beb4",
+                        "on-error": "#690005",
+                        "on-secondary-fixed": "#291800",
+                        "inverse-surface": "#e5e2e1",
+                        "surface-container-highest": "#353534",
+                        "on-tertiary-fixed-variant": "#354a53",
+                        "on-primary-container": "#541200",
+                        "surface-bright": "#393939",
+                        "on-secondary-fixed-variant": "#633f00",
+                        "on-error-container": "#ffdad6",
+                        "primary-fixed": "#ffdbd1",
+                        "error": "#ffb4ab",
+                        "on-primary-fixed": "#3b0900",
+                        "secondary-container": "#c3841b",
+                        "background": "#131313",
+                        "surface-container-low": "#1c1b1b",
+                        "error-container": "#93000a",
+                        "secondary": "#ffb954",
+                        "surface-tint": "#ffb5a0",
+                        "on-tertiary": "#1e333c",
+                        "surface-container-lowest": "#0e0e0e",
+                        "on-tertiary-container": "#172c35",
+                        "on-tertiary-fixed": "#071e27"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "margin-page": "32px",
+                        "gutter": "16px",
+                        "unit": "4px",
+                        "container-max": "1440px"
+                    },
+                    "fontFamily": {
+                        "code-sm": ["JetBrains Mono"],
+                        "headline-lg-mobile": ["Hanken Grotesk"],
+                        "headline-md": ["Hanken Grotesk"],
+                        "body-lg": ["JetBrains Mono"],
+                        "body-md": ["JetBrains Mono"],
+                        "headline-lg": ["Hanken Grotesk"],
+                        "label-md": ["JetBrains Mono"]
+                    },
+                    "fontSize": {
+                        "code-sm": ["12px", { "lineHeight": "18px", "fontWeight": "400" }],
+                        "headline-lg-mobile": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        /* TUI Aesthetics overrides */
+        body {
+            background-color: #121212;
+            color: #e5e2e1;
+        }
+        .pane-border {
+            border: 1px solid #2D2D2D;
+        }
+        .pane-header-bg {
+            background-color: #1A1A1A;
+        }
+        .terminal-scroll::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        .terminal-scroll::-webkit-scrollbar-track {
+            background: #121212; 
+        }
+        .terminal-scroll::-webkit-scrollbar-thumb {
+            background: #2D2D2D; 
+            border-radius: 0px;
+        }
+        .terminal-scroll::-webkit-scrollbar-thumb:hover {
+            background: #ff5722; 
+        }
+        .syntax-keyword { color: #ff5722; }
+        .syntax-string { color: #ffb954; }
+        .syntax-comment { color: #5b4039; font-style: italic; }
+        .syntax-function { color: #b4cad6; }
+        
+        .cursor-blink {
+            animation: blink 1s step-end infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background h-screen overflow-hidden flex flex-col font-code-sm">
+<!-- TopNavBar -->
+<nav class="bg-surface dark:bg-surface font-code-sm text-code-sm border-b border-outline-variant flex justify-between items-center w-full px-margin-page h-16 shrink-0 fixed top-0 left-0 right-0 z-50 shadow-none">
+<div class="flex items-center gap-4">
+<span class="font-headline-md text-headline-md font-bold tracking-tighter text-primary">COUNCIL</span>
+</div>
+<div class="hidden md:flex items-center gap-6">
+<a class="text-on-surface-variant hover:text-primary transition-colors cursor-pointer active:opacity-80" href="#">SESSION: 04:20:12</a>
+</div>
+<div class="flex items-center">
+<button class="bg-transparent border border-primary text-primary px-4 py-2 font-code-sm text-code-sm hover:bg-surface-variant transition-colors flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]">shield</span>
+                Safe Mode
+            </button>
+</div>
+</nav>
+<div class="flex flex-1 mt-16 pt-0 overflow-hidden relative">
+<!-- SideNavBar -->
+<aside class="bg-surface-container dark:bg-surface-container font-code-sm text-code-sm border-r border-outline-variant hidden lg:flex flex-col h-[calc(100vh-64px)] fixed left-0 top-16 w-64 z-40">
+<div class="p-6 border-b border-outline-variant">
+<h2 class="font-headline-lg text-headline-lg text-primary tracking-tighter">AGENTS</h2>
+<p class="text-on-surface-variant mt-1">7 ACTIVE</p>
+</div>
+<nav class="flex-1 overflow-y-auto terminal-scroll py-4 flex flex-col gap-1">
+<a class="text-on-surface-variant px-4 py-3 flex items-center gap-3 hover:bg-surface-variant hover:text-on-surface transition-all duration-150 ease-in-out" href="#">
+<span class="material-symbols-outlined text-[18px]">architecture</span>
+                    Architect
+                </a>
+<a class="text-on-surface-variant px-4 py-3 flex items-center gap-3 hover:bg-surface-variant hover:text-on-surface transition-all duration-150 ease-in-out" href="#">
+<span class="material-symbols-outlined text-[18px]">search</span>
+                    Researcher
+                </a>
+<a class="text-on-surface-variant px-4 py-3 flex items-center gap-3 hover:bg-surface-variant hover:text-on-surface transition-all duration-150 ease-in-out" href="#">
+<span class="material-symbols-outlined text-[18px]">analytics</span>
+                    Analyst
+                </a>
+<a class="border-l-2 border-primary text-primary bg-surface-container-highest px-4 py-3 flex items-center gap-3 transition-all duration-150 ease-in-out" href="#">
+<span class="material-symbols-outlined text-[18px]">terminal</span>
+                    Coder
+                </a>
+<a class="text-on-surface-variant px-4 py-3 flex items-center gap-3 hover:bg-surface-variant hover:text-on-surface transition-all duration-150 ease-in-out" href="#">
+<span class="material-symbols-outlined text-[18px]">fact_check</span>
+                    Reviewer
+                </a>
+<a class="text-on-surface-variant px-4 py-3 flex items-center gap-3 hover:bg-surface-variant hover:text-on-surface transition-all duration-150 ease-in-out" href="#">
+<span class="material-symbols-outlined text-[18px]">edit_note</span>
+                    Scribe
+                </a>
+<a class="text-on-surface-variant px-4 py-3 flex items-center gap-3 hover:bg-surface-variant hover:text-on-surface transition-all duration-150 ease-in-out" href="#">
+<span class="material-symbols-outlined text-[18px]">hub</span>
+                    Orchestrator
+                </a>
+</nav>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 lg:ml-64 flex flex-col md:flex-row p-gutter gap-gutter h-[calc(100vh-64px)] pb-24 md:pb-gutter overflow-hidden bg-surface-dim">
+<!-- Left Pane: Code Workspace -->
+<section class="flex-1 flex flex-col gap-gutter min-w-[300px] h-full overflow-hidden">
+<!-- Editor Pane -->
+<div class="flex-1 pane-border flex flex-col bg-surface overflow-hidden shadow-none">
+<div class="pane-header-bg border-b border-outline-variant px-4 py-2 flex justify-between items-center shrink-0">
+<div class="flex items-center gap-4">
+<span class="font-label-md text-label-md text-primary flex items-center gap-2">
+<span class="material-symbols-outlined text-[14px]">description</span>
+                                orchestration_engine.py
+                            </span>
+<span class="text-on-surface-variant text-[10px]">— ACTIVE</span>
+</div>
+<div class="flex gap-2">
+<button class="text-on-surface-variant hover:text-primary"><span class="material-symbols-outlined text-[16px]">save</span></button>
+<button class="text-on-surface-variant hover:text-primary"><span class="material-symbols-outlined text-[16px]">play_arrow</span></button>
+</div>
+</div>
+<div class="flex-1 flex overflow-hidden">
+<!-- Line Numbers -->
+<div class="w-12 border-r border-outline-variant bg-surface-container-low text-on-surface-variant text-right pr-2 py-4 select-none shrink-0 terminal-scroll overflow-y-hidden" id="line-numbers">
+<!-- JS populated -->
+</div>
+<!-- Code Area -->
+<div class="flex-1 p-4 overflow-auto terminal-scroll bg-surface text-on-surface whitespace-pre font-code-sm text-code-sm leading-relaxed" id="code-content">
+<span class="syntax-keyword">import</span> asyncio
+<span class="syntax-keyword">from</span> typing <span class="syntax-keyword">import</span> List, Dict
+
+<span class="syntax-keyword">class</span> <span class="syntax-function">Orchestrator</span>:
+    <span class="syntax-keyword">def</span> <span class="syntax-function">__init__</span>(self, agents: List[Dict]):
+        self.agents = agents
+        self.state = <span class="syntax-string">"INITIALIZED"</span>
+<span class="syntax-comment"># The nexus point for all agent communication</span>
+        self.event_loop = asyncio.get_event_loop()
+
+    <span class="syntax-keyword">async def</span> <span class="syntax-function">deploy_cluster</span>(self, task_payload: Dict):
+        <span class="syntax-comment">"""Initializes the active agent cluster."""</span>
+        self.state = <span class="syntax-string">"DEPLOYING"</span>
+<span class="syntax-keyword">for</span> agent <span class="syntax-keyword">in</span> self.agents:
+            <span class="syntax-keyword">await</span> agent.boot()
+            <span class="syntax-keyword">print</span>(f<span class="syntax-string">"Agent {agent.id} ONLINE"</span>)
+        
+        <span class="syntax-comment"># Distribute workload</span>
+        results = <span class="syntax-keyword">await</span> asyncio.gather(
+            *[agent.execute(task_payload) <span class="syntax-keyword">for</span> agent <span class="syntax-keyword">in</span> self.agents]
+        )
+        <span class="syntax-keyword">return</span> self.aggregate(results)<span class="w-2 h-4 inline-block bg-primary cursor-blink align-middle ml-1"></span>
+</div>
+</div>
+</div>
+<!-- Terminal Output Pane -->
+<div class="h-48 pane-border flex flex-col bg-surface overflow-hidden shrink-0 shadow-none">
+<div class="pane-header-bg border-b border-outline-variant px-4 py-1 flex items-center justify-between shrink-0">
+<span class="font-label-md text-label-md text-on-surface-variant flex items-center gap-2">
+<span class="material-symbols-outlined text-[14px]">terminal</span>
+                            TERMINAL OUTPUT
+                        </span>
+<div class="flex gap-2">
+<span class="px-2 py-0.5 border border-primary text-primary text-[10px] bg-primary/10">BUILD PASS</span>
+</div>
+</div>
+<div class="flex-1 p-3 overflow-y-auto terminal-scroll text-on-surface-variant font-code-sm text-[11px] leading-tight">
+<div class="flex gap-2 mb-1">
+<span class="text-tertiary">[14:02:11]</span>
+<span>&gt; Initializing test suite...</span>
+</div>
+<div class="flex gap-2 mb-1">
+<span class="text-tertiary">[14:02:12]</span>
+<span>&gt; Running unit tests in /tests/engine</span>
+</div>
+<div class="flex gap-2 mb-1">
+<span class="text-tertiary">[14:02:14]</span>
+<span class="text-primary">&gt; [SUCCESS] test_agent_boot (12ms)</span>
+</div>
+<div class="flex gap-2 mb-1">
+<span class="text-tertiary">[14:02:14]</span>
+<span class="text-primary">&gt; [SUCCESS] test_async_gathering (45ms)</span>
+</div>
+<div class="flex gap-2 mb-1">
+<span class="text-tertiary">[14:02:15]</span>
+<span class="text-secondary">&gt; [WARN] Timeout warning in network mock. Consider adjusting TTL.</span>
+</div>
+<div class="flex gap-2 mt-2">
+<span class="text-primary font-bold">council@engine:~$</span>
+<span class="w-2 h-3 inline-block bg-on-surface cursor-blink align-middle"></span>
+</div>
+</div>
+</div>
+</section>
+<!-- Right Pane: Agent Insights -->
+<section class="w-full md:w-80 pane-border bg-surface-container flex flex-col overflow-hidden shrink-0 shadow-none">
+<div class="pane-header-bg border-b border-outline-variant px-4 py-3 flex items-center justify-between shrink-0">
+<span class="font-label-md text-label-md text-secondary flex items-center gap-2">
+<span class="material-symbols-outlined text-[14px]">psychology</span>
+                        AGENT INSIGHTS
+                    </span>
+<span class="text-[10px] border border-outline-variant px-1 text-on-surface-variant">2 THREADS</span>
+</div>
+<div class="flex-1 overflow-y-auto terminal-scroll p-4 flex flex-col gap-4">
+<!-- Insight Card 1 -->
+<div class="border border-outline-variant bg-surface p-3 flex flex-col gap-2">
+<div class="flex items-center justify-between border-b border-outline-variant pb-2 mb-1">
+<div class="flex items-center gap-2 text-primary text-[11px] font-bold">
+<span class="material-symbols-outlined text-[14px]">fact_check</span>
+                                REVIEWER
+                            </div>
+<span class="text-on-surface-variant text-[10px]">L:18</span>
+</div>
+<p class="text-on-surface text-[12px] leading-relaxed">
+                            The <span class="text-secondary font-bold">asyncio.gather</span> call does not handle individual agent failures. Recommend implementing a fallback or try-except block within the list comprehension to prevent cascading cluster failure.
+                        </p>
+<div class="mt-2 flex gap-2">
+<button class="bg-primary/10 border border-primary text-primary px-2 py-1 text-[10px] hover:bg-primary/20 transition-colors">ACCEPT FIX</button>
+<button class="bg-transparent border border-outline-variant text-on-surface-variant px-2 py-1 text-[10px] hover:text-on-surface transition-colors">DISMISS</button>
+</div>
+</div>
+<!-- Insight Card 2 -->
+<div class="border border-outline-variant bg-surface p-3 flex flex-col gap-2">
+<div class="flex items-center justify-between border-b border-outline-variant pb-2 mb-1">
+<div class="flex items-center gap-2 text-tertiary text-[11px] font-bold">
+<span class="material-symbols-outlined text-[14px]">bug_report</span>
+                                DEBUGGER
+                            </div>
+<span class="text-on-surface-variant text-[10px]">L:12</span>
+</div>
+<p class="text-on-surface text-[12px] leading-relaxed">
+<span class="font-bold text-outline-variant">Performance Notice:</span> Initializing the event loop directly in the constructor might cause conflicts if an external loop is already running in the target environment.
+                        </p>
+</div>
+</div>
+</section>
+</main>
+</div>
+<!-- BottomNavBar (Mobile Only) -->
+<nav class="bg-surface-container-lowest dark:bg-surface-container-lowest font-code-sm text-code-sm border-t border-primary flex md:hidden fixed bottom-0 left-0 w-full z-50 justify-around items-center p-4">
+<a class="text-on-surface-variant flex flex-col items-center justify-center hover:text-primary transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]">terminal</span>
+<span class="text-[10px] mt-1">Command</span>
+</a>
+<a class="text-on-surface-variant flex flex-col items-center justify-center hover:text-primary transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]">mic</span>
+<span class="text-[10px] mt-1">Voice</span>
+</a>
+<a class="text-on-surface-variant flex flex-col items-center justify-center hover:text-primary transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]">image</span>
+<span class="text-[10px] mt-1">Media</span>
+</a>
+<a class="text-primary font-bold flex flex-col items-center justify-center hover:text-primary transition-colors scale-95" href="#">
+<span class="material-symbols-outlined text-[20px]">attach_file</span>
+<span class="text-[10px] mt-1">Files</span>
+</a>
+</nav>
+<script>
+        // Simple script to generate line numbers for the code editor
+        document.addEventListener('DOMContentLoaded', () => {
+            const lineNumbersContainer = document.getElementById('line-numbers');
+            let numbersHTML = '';
+            for (let i = 1; i <= 30; i++) {
+                // Highlight a specific line for demonstration
+                const isActive = i === 18 ? 'text-primary border-r-2 border-primary' : '';
+                numbersHTML += `<div class="${isActive}">${i}</div>`;
+            }
+            lineNumbersContainer.innerHTML = numbersHTML;
+
+            // Sync scrolling between code and line numbers
+            const codeContent = document.getElementById('code-content');
+            codeContent.addEventListener('scroll', () => {
+                lineNumbersContainer.scrollTop = codeContent.scrollTop;
+            });
+        });
+    </script>
+</body></html>

@@ -23,6 +23,13 @@ import {
 
 await acquireSharedMutationLock('hooks/useEffectiveTerminalSize.test.tsx')
 
+// Bun keeps a mock.module() for the rest of the run, so the real
+// ThemeProvider goes back in afterAll; without that, ThemeProvider's own
+// tests got this pass-through when they ran later in the full suite.
+const realThemeProvider = {
+  ...(await import('../components/design-system/ThemeProvider.js')),
+}
+
 mock.module('../components/design-system/ThemeProvider.js', () => ({
   ThemeProvider: function PassthroughThemeProvider({
     children,
@@ -64,7 +71,13 @@ function Probe({ sink }: { sink: { columns: number; rows: number }[] }): React.R
   return <Text>{`${size.columns}x${size.rows}`}</Text>
 }
 
-afterAll(() => releaseSharedMutationLock('hooks/useEffectiveTerminalSize.test.tsx'))
+afterAll(() => {
+  try {
+    mock.module('../components/design-system/ThemeProvider.js', () => realThemeProvider)
+  } finally {
+    releaseSharedMutationLock('hooks/useEffectiveTerminalSize.test.tsx')
+  }
+})
 
 test('without provider, hook returns real terminal size', async () => {
   const { stdout, stdin } = createTestStreams(120)

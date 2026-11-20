@@ -51,7 +51,7 @@ describe('commit-message command helpers', () => {
       'Controls only the attribution text appended after /commit messages.',
     )
     expect(USAGE).toContain(
-      '/commit-message set "Generated with OpenClaude using GPT-5.5"',
+      '/commit-message set "Generated with Council using GPT-5.5"',
     )
     expect(USAGE).not.toContain('/commit-message set-attribution')
   })

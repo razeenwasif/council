@@ -28,9 +28,16 @@ function defaultMessages(): unknown[] {
 
 async function withExportTestCwd<T>(fn: (cwd: string) => Promise<T>): Promise<T> {
   const cwd = await mkdtemp(join(tmpdir(), 'openclaude-export-test-'))
+  // The plain-text export renders the status notices, and under NODE_ENV=test
+  // the auth helper they call throws unless some credential is set; the
+  // export then contains that error instead of the conversation.
+  const originalApiKey = process.env.ANTHROPIC_API_KEY
+  process.env.ANTHROPIC_API_KEY ??= 'test-key'
   try {
     return await fn(cwd)
   } finally {
+    if (originalApiKey === undefined) delete process.env.ANTHROPIC_API_KEY
+    else process.env.ANTHROPIC_API_KEY = originalApiKey
     await rm(cwd, { recursive: true, force: true })
   }
 }

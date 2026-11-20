@@ -101,7 +101,10 @@ function setupOpenAIMode(baseUrl: string, model: string): void {
 }
 
 describe('printStartupScreen logo', () => {
-  test('renders CLAUDE with a D-shaped D instead of an O-shaped block', () => {
+  // The banner was OpenClaude's CLAUDE wordmark (this test used to check its
+  // D wasn't drawn as an O); since f26bdb3 it's COUNCIL beside the council
+  // glyph, and the old CLAUDE rows are gone.
+  test('renders the COUNCIL wordmark beside the council glyph', () => {
     ;(globalThis as Record<string, unknown>).MACRO = { VERSION: 'test-version' }
     Object.defineProperty(process.stdout, 'isTTY', {
       configurable: true,
@@ -117,10 +120,11 @@ describe('printStartupScreen logo', () => {
     printStartupScreen()
 
     const plainOutput = stripAnsi(output)
-    expect(plainOutput).toContain('███████╗ ████████╗')
-    expect(plainOutput).toContain('██╔═══██╗ ██╔═════╝')
-    expect(plainOutput).toContain('███████╔╝ ████████╗')
-    expect(plainOutput).not.toContain('████████║ ████████╗')
+    // C O U N C I L, top and bottom rows
+    expect(plainOutput).toContain('██████ ██████ ██  ██ ██  ██ ██████ ██████ ██')
+    expect(plainOutput).toContain('██████ ██████ ██████ ██  ██ ██████ ██████ ██████')
+    expect(plainOutput).toContain('◆')
+    expect(plainOutput).not.toContain('███████╗ ████████╗')
   })
 })
 

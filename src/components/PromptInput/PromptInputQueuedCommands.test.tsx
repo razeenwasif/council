@@ -6,6 +6,13 @@ import {
 } from '../../test/sharedMutationLock.js'
 import { renderToString } from '../../utils/staticRender.js'
 
+// mock.restore() doesn't undo mock.module() in Bun: without putting the real
+// modules back, every later test file got this fake AppState (no
+// AppStateProvider, no toolPermissionContext), which broke /export's plain
+// text and the ThemeProvider tests when the whole suite ran.
+const realCommandQueue = { ...(await import('../../hooks/useCommandQueue.js')) }
+const realAppState = { ...(await import('src/state/AppState.js')) }
+
 describe('PromptInputQueuedCommands', () => {
   beforeEach(async () => {
     await acquireSharedMutationLock('components/PromptInput/PromptInputQueuedCommands.test.tsx')
@@ -28,6 +35,8 @@ describe('PromptInputQueuedCommands', () => {
   afterEach(() => {
     try {
       mock.restore()
+      mock.module('../../hooks/useCommandQueue.js', () => realCommandQueue)
+      mock.module('src/state/AppState.js', () => realAppState)
     } finally {
       releaseSharedMutationLock()
     }

@@ -1,0 +1,44 @@
+# council's .github/workflows/pr-checks.yml, on Neutrino.
+#
+# Changes from the GitHub version:
+#   * ubuntu-latest + setup-node 22 + setup-bun  ->  a node:22 container on
+#     Graviton (arm64 Linux), with the bun in .bun-version installed by npm
+#   * left out, because what they check isn't in the repo: the Python tests
+#     (no python/ folder) and the web job (no web/ folder). Those two are why
+#     the GitHub workflow has failed since June.
+#   * left out: the "suspicious PR intent" scan. It diffs against the pull
+#     request's base, and a Neutrino checkout holds only the commit being
+#     built. Run it locally: bun run security:pr-scan -- --base origin/main
+
+name: PR Checks
+
+on:
+  push: { branches: [main] }
+  pull_request: {}
+  workflow_dispatch: {}
+
+jobs:
+  smoke-and-tests:
+    image: node:22
+    resources: { cpus: 4, memory: 6G }
+    timeout-minutes: 30
+    env:
+      BUN_INSTALL_CACHE_DIR: /workspace/.bun-cache
+      npm_config_cache: /workspace/.npm
+    cache:
+      - key: bun-${{ hashFiles('bun.lock') }}
+        path: [.bun-cache, .npm]
+        restore-keys: [bun-]
+    steps:
+      - name: Set up Bun
+        run: npm install -g "bun@$(cat .bun-version)"
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Smoke check
+        run: bun run smoke
+      - name: Full unit test suite
+        run: bun test --max-concurrency=1
+      - name: Provider tests
+        run: bun run test:provider
+      - name: Provider recommendation tests
+        run: npm run test:provider-recommendation

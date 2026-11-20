@@ -34,6 +34,6 @@ package-lock.json
 /.claude
 GEMINI.md
 CLAUDE.md
-plan/
+/plan/
 # Background-agent scratch — keeps regenerating itself unbidden
 PROGRESS.md
